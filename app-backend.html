@@ -1,0 +1,1683 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>鏍″洯鎯呮姤瀹?Insight Campus | 鑵捐 PCG AI 浜у搧鍒涙剰 Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#0052D9',
+            accent: '#7C3AED',
+            ink: '#111827'
+          },
+          boxShadow: {
+            soft: '0 18px 60px rgba(17, 24, 39, 0.10)'
+          },
+          keyframes: {
+            float: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-8px)' } },
+            fadeUp: { '0%': { opacity: 0, transform: 'translateY(18px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
+            scan: { '0%': { transform: 'translateY(-120%)' }, '100%': { transform: 'translateY(120%)' } }
+          },
+          animation: {
+            float: 'float 3s ease-in-out infinite',
+            fadeUp: 'fadeUp .45s ease-out both',
+            scan: 'scan 2s ease-in-out infinite'
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .glass { background: rgba(255,255,255,.82); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); }
+    .glass-dark { background: rgba(17,24,39,.88); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); }
+    .gradient-text { background: linear-gradient(135deg,#0052D9,#7C3AED); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body class="bg-slate-100 text-ink">
+  <div id="root">
+    <div class="min-h-screen flex items-center justify-center">
+      <div class="text-center">
+        <div class="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin mx-auto mb-4"></div>
+        <p class="text-slate-500">鏍″洯鎯呮姤瀹樺惎鍔ㄤ腑...</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    const { useCallback, useContext, useEffect, useMemo, useRef, useState, createContext } = React;
+
+    const API_BASE = (() => {
+      if (window.location.protocol === 'file:') return 'http://localhost:3001';
+      if (window.location.port && window.location.port !== '3001') return 'http://localhost:3001';
+      return window.location.origin;
+    })();
+
+    const AppContext = createContext(null);
+
+    function cx(...items) {
+      return items.filter(Boolean).join(' ');
+    }
+
+    function formatLocalDate(date) {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function parseCalendarDateTime(rawText, fallbackDate = new Date()) {
+      const text = String(rawText || '').replace(/\s+/g, ' ').trim();
+      const base = new Date(fallbackDate);
+      if (!text) return { date: formatLocalDate(base), time: '' };
+
+      let date = null;
+      let match = text.match(/(\d{4})[-/.骞碷(\d{1,2})(?:[-/.鏈圿(\d{1,2}))[鏃ュ彿]?/);
+      if (match) {
+        date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      }
+
+      if (!date) {
+        match = text.match(/(\d{1,2})鏈圽s*(\d{1,2})[鏃ュ彿]?/);
+        if (match) date = new Date(base.getFullYear(), Number(match[1]) - 1, Number(match[2]));
+      }
+
+      if (!date && /鍚庡ぉ/.test(text)) {
+        date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 2);
+      } else if (!date && /鏄庡ぉ|娆℃棩/.test(text)) {
+        date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1);
+      } else if (!date && /浠婂ぉ|浠婃櫄|褰撳ぉ/.test(text)) {
+        date = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+      }
+
+      if (!date) {
+        const weekMatch = text.match(/(?:鍛▅鏄熸湡)([涓€浜屼笁鍥涗簲鍏棩澶?-7])/);
+        if (weekMatch) {
+          const map = { 涓€: 1, 浜? 2, 涓? 3, 鍥? 4, 浜? 5, 鍏? 6, 鏃? 0, 澶? 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 0 };
+          const target = map[weekMatch[1]];
+          const current = base.getDay();
+          let diff = (target - current + 7) % 7;
+          if (diff === 0) diff = 7;
+          date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + diff);
+        }
+      }
+
+      const periodMatch = text.match(/(涓婂崍|涓嬪崍|鏅氫笂|涓崍|鍑屾櫒)?\s*(\d{1,2})[:锛歖(\d{1,2})/);
+      const pointMatch = !periodMatch ? text.match(/(涓婂崍|涓嬪崍|鏅氫笂|涓崍|鍑屾櫒)?\s*(\d{1,2})鐐??:鍗妡(\d{1,2})鍒?)?/) : null;
+      let time = '';
+      if (periodMatch || pointMatch) {
+        const item = periodMatch || pointMatch;
+        let hour = Number(item[2]);
+        let minute = item[3] ? Number(item[3]) : (pointMatch && /鐐瑰崐/.test(item[0]) ? 30 : 0);
+        const period = item[1] || '';
+        if ((period === '涓嬪崍' || period === '鏅氫笂') && hour < 12) hour += 12;
+        if (period === '涓崍' && hour < 11) hour += 12;
+        if (period === '鍑屾櫒' && hour === 12) hour = 0;
+        if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+          time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        }
+      }
+
+      return { date: formatLocalDate(date || base), time };
+    }
+
+    async function apiPost(path, payload) {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch (_) { throw new Error(text || '鎺ュ彛杩斿洖闈?JSON'); }
+      if (!res.ok || data.ok === false) throw new Error(data.error || `鎺ュ彛寮傚父 ${res.status}`);
+      return data;
+    }
+
+    async function apiHealth() {
+      const res = await fetch(`${API_BASE}/api/health`);
+      if (!res.ok) throw new Error('鍚庣鏈惎鍔?);
+      return res.json();
+    }
+
+    function parseMaybeDate(timeText) {
+      const text = String(timeText || '').trim();
+      const fallback = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const parsed = parseCalendarDateTime(text, fallback);
+      return new Date(`${parsed.date}T${parsed.time || '09:00'}:00`);
+    }
+
+    function escapeIcs(value) {
+      return String(value || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\n/g, '\\n')
+        .replace(/,/g, '\\,')
+        .replace(/;/g, '\\;');
+    }
+
+    function formatIcsDate(date) {
+      return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    }
+
+    function downloadIcs(task, summary) {
+      const start = parseMaybeDate(task.time);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const title = escapeIcs(task.topic || '鏍″洯浜嬮」');
+      const ics = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Insight Campus//CN',
+        'CALSCALE:GREGORIAN',
+        'BEGIN:VEVENT',
+        `UID:${Date.now()}@insight-campus`,
+        `DTSTAMP:${formatIcsDate(new Date())}`,
+        `DTSTART:${formatIcsDate(start)}`,
+        `DTEND:${formatIcsDate(end)}`,
+        `SUMMARY:${title}`,
+        `LOCATION:${escapeIcs(task.location)}`,
+        `DESCRIPTION:${escapeIcs(summary || task.actionItems?.join('锛?) || '')}`,
+        'BEGIN:VALARM',
+        'TRIGGER:-PT30M',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:${title} 30 鍒嗛挓鍚庡紑濮媊,
+        'END:VALARM',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n');
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(task.topic || 'campus-task').replace(/[\\/:*?"<>|]/g, '_')}.ics`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function readFileAsDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function Toast({ toast, onClose }) {
+      useEffect(() => {
+        const timer = setTimeout(onClose, 3200);
+        return () => clearTimeout(timer);
+      }, [onClose]);
+      const palette = toast.type === 'error'
+        ? 'bg-rose-500'
+        : toast.type === 'info'
+          ? 'bg-primary'
+          : 'bg-emerald-500';
+      return (
+        <div className="animate-fadeUp">
+          <div className={cx('rounded-2xl shadow-soft px-5 py-3 text-white flex items-center gap-3', palette)}>
+            <span>{toast.type === 'error' ? '鈿狅笍' : toast.type === 'info' ? '鈩癸笍' : '鉁?}</span>
+            <span className="font-medium text-sm">{toast.message}</span>
+          </div>
+        </div>
+      );
+    }
+
+    function HealthBadge({ health }) {
+      const configured = Boolean(health?.apiConfigured);
+      
+      // 鑾峰彇鎻愪緵鍟嗗悕绉?      const getProviderName = (provider) => {
+        const names = {
+          'tencent': '鑵捐娣峰厓',
+          'zhipu': '鏅鸿氨 BigModel',
+          'openai': 'OpenAI',
+          'anthropic': 'Anthropic',
+          'openai-compatible': '鑷畾涔?API'
+        };
+        return names[provider] || provider || 'AI';
+      };
+      
+      const providerName = getProviderName(health?.provider);
+      const modelName = health?.model || '';
+      
+      return (
+        <div className={cx(
+          'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border',
+          configured ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+        )}>
+          <span className={cx('w-2 h-2 rounded-full', configured ? 'bg-emerald-500' : 'bg-amber-500')}></span>
+          {configured ? `${providerName} 鐪熷疄璋冪敤 路 ${modelName}` : 'Mock 婕旂ず妯″紡 路 鍙棤瀵嗛挜杩愯'}
+        </div>
+      );
+    }
+
+    function Sidebar({ activeTab, setActiveTab, health, onOpenAIConsole }) {
+      const items = [
+        { id: 0, label: '鎯呮姤涓績', icon: '馃' },
+        { id: 1, label: '鎯呮姤鏃ュ巻', icon: '馃搮' },
+        { id: 2, label: '闅忚韩绗旇', icon: '馃摑' },
+        { id: 3, label: '鎼瓙闆疯揪', icon: '馃摗' }
+      ];
+      return (
+        <aside className="fixed left-0 top-0 bottom-0 w-[274px] glass border-r border-white/60 z-30 flex flex-col">
+          <div className="p-6 border-b border-slate-200/70">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center shadow-lg shadow-blue-500/20">馃帗</div>
+              <div>
+                <h1 className="font-black text-lg tracking-tight">鏍″洯鎯呮姤瀹?/h1>
+                <p className="text-xs text-slate-500">Insight Campus</p>
+              </div>
+            </div>
+            <div className="mt-5"><HealthBadge health={health} /></div>
+          </div>
+          <nav className="p-4 flex-1">
+            {items.map(item => (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={cx(
+                  'w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl mb-2 transition-all text-left',
+                  activeTab === item.id ? 'bg-primary/10 text-primary font-bold shadow-sm' : 'text-slate-600 hover:bg-white/70'
+                )}
+              >
+                <span className="text-xl">{item.icon}</span>
+                <span>{item.label}</span>
+                {activeTab === item.id && <span className="ml-auto w-2 h-2 rounded-full bg-accent"></span>}
+              </button>
+            ))}
+          </nav>
+          <div className="p-4 border-t border-slate-200/70">
+            <button
+              onClick={onOpenAIConsole}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left text-slate-600 hover:bg-white/70 transition-all"
+            >
+              <span className="text-xl">馃</span>
+              <span className="font-semibold">AI 鎺у埗鍙?/span>
+            </button>
+          </div>
+          <div className="p-4">
+            <div className="rounded-3xl bg-gradient-to-br from-primary/10 via-white to-accent/10 p-4 border border-white shadow-sm">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-bold">鏋?/div>
+                <div>
+                  <p className="font-bold text-sm">鏋楀悓瀛?/p>
+                  <p className="text-xs text-slate-500">璁＄畻鏈哄闄?路 鐮斾簩</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div><p className="font-black text-primary">12</p><p className="text-[11px] text-slate-500">浠诲姟</p></div>
+                <div><p className="font-black text-accent">8</p><p className="text-[11px] text-slate-500">鎼瓙</p></div>
+                <div><p className="font-black text-emerald-500">95%</p><p className="text-[11px] text-slate-500">瀹屾垚</p></div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      );
+    }
+
+    function ProductPositionCard() {
+      const points = [
+        ['鐪熷疄鐥涚偣', '鏍″洯缇よ亰銆佹捣鎶ャ€丏DL 鍒嗘暎鍦ㄥ涓叆鍙ｏ紝瀛︾敓寰堝鏄撴紡鐪嬫椂闂村湴鐐瑰拰鎶ュ悕瑕佹眰銆?],
+        ['AI 浠峰€?, '鎶婇潪缁撴瀯鍖栭€氱煡杞垚浠诲姟銆佹礊瀵熴€佹棩鍘嗘彁閱掋€佸彲鍒嗕韩鍗＄墖銆?],
+        ['PCG 鑱斿姩', 'QQ/QQ棰戦亾璐熻矗鍒嗗彂涓庣ぞ浜わ紝鑵捐鏂伴椈琛ュ厖鑳屾櫙锛岃吘璁枃妗ｆ矇娣€鏉愭枡锛屾贩鍏冭礋璐ｇ悊瑙ｄ笌鐢熸垚銆?],
+        ['楠岃瘉鎸囨爣', '閫氱煡閬楁紡鐜囥€佹棩鍘嗗悓姝ョ巼銆佸崱鐗囪浆鍙戠巼銆佺粍闃熸垚鍔熺巼銆?]
+      ];
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-8">
+          {points.map(([title, desc], index) => (
+            <div key={title} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm animate-fadeUp" style={{ animationDelay: `${index * 70}ms` }}>
+              <p className="text-xs font-black text-primary mb-2">{title}</p>
+              <p className="text-sm text-slate-600 leading-relaxed">{desc}</p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function InputArea({ onResult }) {
+      const { showToast } = useContext(AppContext);
+      const [tab, setTab] = useState('text');
+      const [text, setText] = useState('鑵捐 PCG 鏍″洯鎷涜仒瀹ｈ浼氾紝鏈懆浜?19:00锛屽ぇ瀛︾敓娲诲姩涓績 101銆傜幇鍦轰細浠嬬粛鍐呭浜у搧銆丵Q 棰戦亾杩愯惀銆丄IGC 浜у搧瀹炰範宀椾綅锛屾杩庡甫绠€鍘嗗弬鍔犮€?);
+      const [loading, setLoading] = useState(false);
+      const [dragging, setDragging] = useState(false);
+      const [preview, setPreview] = useState('');
+      const fileRef = useRef(null);
+
+      const handleAnalyzeText = async () => {
+        if (!text.trim()) return showToast('璇峰厛绮樿创閫氱煡鏂囨湰', 'info');
+        setLoading(true);
+        try {
+          const data = await apiPost('/api/analyze', { content: text });
+          onResult(data);
+          showToast(/hunyuan|zhipu|openai|anthropic|custom/.test(data.source || '') ? 'AI 瑙ｆ瀽瀹屾垚' : 'Mock 瑙ｆ瀽瀹屾垚锛屽彲閰嶇疆瀵嗛挜鍒囨崲鐪熷疄璋冪敤', /hunyuan|zhipu|openai|anthropic|custom/.test(data.source || '') ? 'success' : 'info');
+        } catch (error) {
+          showToast(error.message || '瑙ｆ瀽澶辫触', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleFile = async file => {
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return showToast('璇蜂笂浼犲浘鐗囨枃浠?, 'info');
+        setLoading(true);
+        try {
+          const dataUrl = await readFileAsDataURL(file);
+          setPreview(dataUrl);
+          const data = await apiPost('/api/analyze-image', { imageBase64: dataUrl });
+          if (data.ocrText) setText(data.ocrText);
+          onResult(data);
+          showToast(data.ocrText ? 'OCR + AI 瑙ｆ瀽瀹屾垚' : '宸茶繑鍥炲浘鐗囨紨绀虹粨鏋?, data.ocrText ? 'success' : 'info');
+        } catch (error) {
+          showToast(error.message || '鍥剧墖瑙ｆ瀽澶辫触', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="bg-white rounded-[28px] p-6 md:p-7 shadow-soft border border-white">
+          <div className="flex bg-slate-100 rounded-full p-1 w-full max-w-md mx-auto mb-6">
+            {[
+              ['text', '绮樿创缇よ亰/閫氱煡'],
+              ['image', '涓婁紶娴锋姤/鎴浘']
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={cx('flex-1 py-2.5 rounded-full font-semibold text-sm transition-all', tab === id ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-800')}
+              >{label}</button>
+            ))}
+          </div>
+
+          {tab === 'text' ? (
+            <textarea
+              value={text}
+              onChange={e => setText(e.target.value)}
+              placeholder="绮樿创 QQ 缇ら€氱煡銆佹牎鍥叕鍛娿€丏DL銆佺ぞ鍥㈡嫑鏂颁俊鎭?.."
+              className="w-full h-44 rounded-2xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-primary/25 outline-none p-4 text-slate-700 resize-none leading-relaxed"
+            />
+          ) : (
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files?.[0]); }}
+              className={cx('relative h-52 rounded-2xl border-2 border-dashed overflow-hidden cursor-pointer flex items-center justify-center transition-all', dragging ? 'border-accent bg-purple-50' : 'border-slate-200 bg-slate-50 hover:border-primary/40')}
+            >
+              {loading && <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-accent/20 to-transparent animate-scan"></div>}
+              {preview ? <img src={preview} className="max-w-full max-h-full object-contain" alt="娴锋姤棰勮" /> : (
+                <div className="text-center text-slate-500">
+                  <div className="text-4xl mb-3">馃柤锔?/div>
+                  <p className="font-semibold">鐐瑰嚮鎴栨嫋鎷戒笂浼犳捣鎶?/ 鎴浘</p>
+                  <p className="text-xs mt-1">閰嶇疆鏅鸿氨 BigModel 鍚庯紝鍚庣浼氱敤澶氭ā鎬?AI 鍚屾椂璇嗗埆鏂囧瓧鍜岀敾闈?/p>
+                </div>
+              )}
+              <input ref={fileRef} className="hidden" type="file" accept="image/*" onChange={e => handleFile(e.target.files?.[0])} />
+            </div>
+          )}
+
+          <button
+            onClick={tab === 'text' ? handleAnalyzeText : () => fileRef.current?.click()}
+            disabled={loading}
+            className={cx('mt-6 w-full rounded-2xl py-4 font-black text-white flex items-center justify-center gap-2 transition-all', loading ? 'bg-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-primary to-accent hover:shadow-lg hover:shadow-blue-500/20 hover:scale-[1.01]')}
+          >
+            {loading ? <span className="w-5 h-5 rounded-full border-2 border-white/40 border-t-white animate-spin"></span> : <span>鉁?/span>}
+            {loading ? '鎯呮姤瀹樻鍦ㄨВ鏋?..' : tab === 'text' ? '鍛煎彨鎯呮姤瀹?AI 瑙ｆ瀽' : '閫夋嫨鍥剧墖骞惰В鏋?}
+          </button>
+        </div>
+      );
+    }
+
+    function TaskCard({ result, onSync }) {
+      const { showToast } = useContext(AppContext);
+      const task = result.task || {};
+      const priorityStyle = task.priority === 'high' ? 'bg-rose-50 text-rose-700 border-rose-200' : task.priority === 'low' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200';
+      
+      const handleSync = () => {
+        downloadIcs(task, result.news?.summary);
+        onSync(task, result.news);
+        showToast('宸插悓姝ュ埌鎯呮姤鏃ュ巻', 'success');
+      };
+      
+      return (
+        <div className="bg-white rounded-[28px] shadow-soft border border-white overflow-hidden animate-fadeUp">
+          <div className="h-1.5 bg-gradient-to-r from-primary to-blue-300"></div>
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-xs font-black text-primary mb-1">TASK EXTRACT</p>
+                <h3 className="font-black text-xl">浠诲姟鎻愬彇</h3>
+              </div>
+              <span className={cx('text-xs font-bold px-3 py-1 rounded-full border', priorityStyle)}>{task.priority === 'high' ? '楂樹紭鍏堢骇' : task.priority === 'low' ? '浣庝紭鍏堢骇' : '涓紭鍏堢骇'}</span>
+            </div>
+            <div className="space-y-4">
+              <InfoRow label="涓婚" value={task.topic} icon="馃彿锔? />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <InfoRow label="鏃堕棿" value={task.time} icon="鈴? compact />
+                <InfoRow label="鍦扮偣" value={task.location} icon="馃搷" compact />
+              </div>
+              <InfoRow label="绫诲瀷" value={task.typeLabel || task.type} icon="馃З" />
+            </div>
+            <div className="mt-5 bg-slate-50 rounded-2xl p-4">
+              <p className="text-xs font-black text-slate-500 mb-3">涓嬩竴姝ヨ鍔?/p>
+              <div className="space-y-2">
+                {(task.actionItems || []).map((item, idx) => (
+                  <div key={idx} className="flex gap-2 text-sm text-slate-700"><span className="text-emerald-500">鉁?/span><span>{item}</span></div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                onClick={handleSync}
+                className="rounded-2xl py-3 border-2 border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all"
+              >鍚屾鏃ュ巻</button>
+              <button
+                onClick={() => showToast('宸茬敓鎴?QQ 棰戦亾鎯呮姤鍗＄墖锛堟紨绀猴級', 'success')}
+                className="rounded-2xl py-3 bg-gradient-to-r from-[#12B7F5] to-primary text-white font-bold hover:shadow-lg transition-all"
+              >鍒嗗彂 QQ</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function InfoRow({ label, value, icon, compact }) {
+      return (
+        <div className={cx('rounded-2xl bg-slate-50', compact ? 'p-3' : 'p-4')}>
+          <p className="text-xs text-slate-400 font-bold mb-1 flex items-center gap-1"><span>{icon}</span>{label}</p>
+          <p className="font-bold text-slate-800 leading-snug">{value || '寰呯‘璁?}</p>
+        </div>
+      );
+    }
+
+    function InsightCard({ result, onOpenAgent }) {
+      const { showToast } = useContext(AppContext);
+      const news = result.news || {};
+      const sourceLabel = result.source?.includes('zhipu') ? '鏅鸿氨 BigModel 鐢熸垚' : result.source?.includes('hunyuan') ? '鑵捐娣峰厓 AI 鐢熸垚' : '鏈湴 Mock 瑙勫垯鐢熸垚';
+      
+      return (
+        <div className="bg-white rounded-[28px] shadow-soft border border-white overflow-hidden animate-fadeUp" style={{ animationDelay: '90ms' }}>
+          <div className="h-1.5 bg-gradient-to-r from-accent to-purple-300"></div>
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-xs font-black text-accent mb-1">SMART INSIGHT</p>
+                <h3 className="font-black text-xl">鏅鸿兘娲炲療</h3>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-accent border border-purple-100">{sourceLabel}</span>
+            </div>
+            <h4 className="font-black text-lg leading-snug mb-3">{news.title}</h4>
+            <p className="text-slate-600 leading-relaxed bg-slate-50 rounded-2xl p-4 text-sm">{news.summary}</p>
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <MiniList title="鍑嗗寤鸿" items={news.preparation} icon="馃Л" />
+              <MiniList title="PCG 鍦烘櫙鑱斿姩" items={news.pcgMapping} icon="馃敆" />
+            </div>
+            {result.providerError && (
+              <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
+                澶фā鍨嬭皟鐢ㄥけ璐ワ紝宸茶嚜鍔ㄩ檷绾?Mock锛歿result.providerError}
+              </div>
+            )}
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                onClick={onOpenAgent}
+                className="rounded-2xl py-3 bg-gradient-to-r from-accent to-primary text-white font-bold hover:shadow-lg transition-all"
+              >妯℃嫙闈㈣瘯</button>
+              <button
+                onClick={() => showToast('宸插鍒跺垎浜崱鐗囨枃妗堬紙婕旂ず锛?, 'success')}
+                className="rounded-2xl py-3 bg-gradient-to-r from-purple-500 to-accent text-white font-bold hover:shadow-lg transition-all"
+              >鐢熸垚鍗＄墖</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function MiniList({ title, items = [], icon }) {
+      return (
+        <div className="rounded-2xl bg-slate-50 p-4">
+          <p className="text-xs font-black text-slate-500 mb-3"><span className="mr-1">{icon}</span>{title}</p>
+          <div className="space-y-2">
+            {(items || []).slice(0, 4).map((item, index) => (
+              <p key={index} className="text-sm text-slate-700 leading-relaxed flex gap-2"><span className="text-primary font-black">{index + 1}</span><span>{item}</span></p>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function ResultPanel({ result, onSync, onOpenAgent }) {
+      if (!result) return null;
+      return (
+        <div className="mt-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <TaskCard result={result} onSync={onSync} />
+          <InsightCard result={result} onOpenAgent={onOpenAgent} />
+        </div>
+      );
+    }
+
+    function IntelligenceCenter() {
+      const { addCalendarTask, setInterviewContext, setAgentOpen } = useContext(AppContext);
+      const [result, setResult] = useState(null);
+      
+      // 鍙悓姝ヤ换鍔℃彁鍙栧埌鏃ュ巻锛屾礊瀵熷崱鐗囦繚鐣欎负璺紨/鍒嗕韩绱犳潗銆?      const onSync = (task, news) => {
+        if (task && task.topic) {
+          addCalendarTask({
+            id: Date.now(),
+            title: task.topic,
+            date: task.time,
+            timeText: task.time,
+            location: task.location || '',
+            priority: task.priority || 'medium',
+            type: 'task',
+            synced: true
+          });
+        }
+      };
+      
+      const openAgent = () => {
+        setInterviewContext(result?.news?.summary || result?.task?.topic || '鏍″洯鎯呮姤瀹樹骇鍝?Demo');
+        setAgentOpen(true);
+      };
+      
+      return (
+        <div className="animate-fadeUp">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 px-4 py-2 rounded-full shadow-sm mb-4">
+              <span>鉁?/span><span className="text-sm font-bold text-slate-600">鏍″洯纰庣墖淇℃伅 路 AI 浜у搧鍖栧鐞?/span>
+            </div>
+            <h2 className="text-4xl font-black tracking-tight mb-3"><span className="gradient-text">璁╂牎鍥俊鎭笉鍐嶆潅涔?/span></h2>
+            <p className="text-slate-500 max-w-2xl mx-auto">绮樿创 QQ 缇ら€氱煡鎴栦笂浼犳捣鎶ワ紝鑷姩鎻愬彇浠诲姟銆佺敓鎴愭礊瀵熴€佸悓姝ユ棩鍘嗭紝骞舵矇娣€鎴?QQ 棰戦亾鍙垎浜殑鎯呮姤鍗＄墖銆?/p>
+          </div>
+          <ProductPositionCard />
+          <InputArea onResult={setResult} />
+          <ResultPanel result={result} onSync={onSync} onOpenAgent={openAgent} />
+        </div>
+      );
+    }
+
+    function RealCalendar({ tasks, onRefreshHealth }) {
+      const { showToast } = useContext(AppContext);
+      const [currentDate, setCurrentDate] = useState(new Date());
+      const [events, setEvents] = useState(() => {
+        // 浠?localStorage 鍔犺浇宸蹭繚瀛樼殑浜嬩欢
+        try {
+          const saved = localStorage.getItem('calendar-events');
+          return saved ? JSON.parse(saved) : [];
+        } catch {
+          return [];
+        }
+      });
+      const [selectedDate, setSelectedDate] = useState(null);
+      const [showDayEvents, setShowDayEvents] = useState(false);
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [newEvent, setNewEvent] = useState({ title: '', time: '', location: '', priority: 'medium' });
+
+      const getEventDateTime = (event, fallbackTime = '00:00') => new Date(`${event.date}T${event.time || fallbackTime}:00`);
+
+      // 淇濆瓨浜嬩欢鍒?localStorage
+      const saveEvents = (newEvents) => {
+        setEvents(newEvents);
+        localStorage.setItem('calendar-events', JSON.stringify(newEvents));
+      };
+
+      // 娣诲姞浜嬩欢
+      const addEvent = () => {
+        if (!newEvent.title.trim()) return showToast('璇疯緭鍏ヤ簨浠舵爣棰?, 'info');
+        const event = {
+          id: Date.now(),
+          title: newEvent.title,
+          date: selectedDate ? formatLocalDate(selectedDate) : formatLocalDate(new Date()),
+          time: newEvent.time,
+          location: newEvent.location,
+          priority: newEvent.priority
+        };
+        saveEvents([...events, event]);
+        setNewEvent({ title: '', time: '', location: '', priority: 'medium' });
+        setShowAddModal(false);
+        showToast('浜嬩欢宸叉坊鍔?, 'success');
+      };
+
+      // 鍒犻櫎浜嬩欢
+      const deleteEvent = (id) => {
+        saveEvents(events.filter(e => e.id !== id));
+        showToast('浜嬩欢宸插垹闄?, 'success');
+      };
+
+      // 鑾峰彇鏌愭棩鏈熺殑浜嬩欢
+      const getEventsForDate = (date) => {
+        const dateStr = formatLocalDate(date);
+        return events.filter(e => e.date === dateStr);
+      };
+
+      // 璁＄畻鍊掕鏃?      const getCountdown = (event) => {
+        const eventDate = getEventDateTime(event, '00:00');
+        const now = new Date();
+        const diff = eventDate - now;
+        if (diff < 0) return { text: '宸茶繃鏈?, color: 'text-slate-400' };
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        if (days > 0) return { text: `杩樺墿 ${days} 澶?${hours} 灏忔椂`, color: 'text-amber-600' };
+        if (hours > 0) return { text: `杩樺墿 ${hours} 灏忔椂`, color: 'text-orange-600' };
+        return { text: '鍗冲皢寮€濮?, color: 'text-rose-600' };
+      };
+
+      // 鏃ュ巻瀵艰埅
+      const goToPrevMonth = () => {
+        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+      };
+      const goToNextMonth = () => {
+        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+      };
+
+      // 鐢熸垚鏃ュ巻缃戞牸
+      const generateCalendarDays = () => {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        const startWeekday = (firstDay.getDay() + 6) % 7; // 杞崲涓哄懆涓€寮€濮?
+        const days = [];
+        // 濉厖涓婃湀绌虹櫧
+        for (let i = 0; i < startWeekday; i++) {
+          days.push(null);
+        }
+        // 濉厖褰撴湀鏃ユ湡
+        for (let d = 1; d <= daysInMonth; d++) {
+          days.push(new Date(year, month, d));
+        }
+        return days;
+      };
+
+      const calendarDays = generateCalendarDays();
+      const weekDays = ['涓€', '浜?, '涓?, '鍥?, '浜?, '鍏?, '鏃?];
+      const today = new Date();
+
+      return (
+        <section className="animate-fadeUp">
+          <PageTitle icon="馃搮" title="鎯呮姤鏃ュ巻" subtitle="绠＄悊浣犵殑鏍″洯鏃ョ▼锛屾敮鎸佸€掕鏃舵彁閱? />
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* 鏃ュ巻瑙嗗浘 */}
+            <div className="lg:col-span-2 bg-white rounded-[28px] p-6 shadow-soft border border-white">
+              {/* 鏈堜唤瀵艰埅 */}
+              <div className="flex items-center justify-between mb-6">
+                <button onClick={goToPrevMonth} className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center">鈫?/button>
+                <h3 className="font-black text-xl">
+                  {currentDate.getFullYear()}骞?{currentDate.getMonth() + 1}鏈?                </h3>
+                <button onClick={goToNextMonth} className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center">鈫?/button>
+              </div>
+
+              {/* 鏄熸湡鏍囬 */}
+              <div className="grid grid-cols-7 gap-2 mb-2">
+                {weekDays.map(day => (
+                  <div key={day} className="text-center text-xs font-bold text-slate-400 py-2">{day}</div>
+                ))}
+              </div>
+
+              {/* 鏃ュ巻缃戞牸 */}
+              <div className="grid grid-cols-7 gap-2">
+                {calendarDays.map((date, index) => {
+                  if (!date) return <div key={index}></div>;
+                  const dateKey = formatLocalDate(date);
+                  const isToday = dateKey === formatLocalDate(today);
+                  const isSelected = selectedDate && dateKey === formatLocalDate(selectedDate);
+                  const dayEvents = getEventsForDate(date);
+                  
+                  return (
+                    <div
+                      key={dateKey}
+                      onClick={() => { setSelectedDate(date); setShowDayEvents(true); }}
+                      className={cx(
+                        'min-h-[80px] p-2 rounded-2xl cursor-pointer transition-all hover:bg-slate-50',
+                        isToday && 'bg-primary/10',
+                        isSelected && 'ring-2 ring-primary'
+                      )}
+                    >
+                      <div className={cx('text-sm font-bold mb-1', isToday ? 'text-primary' : 'text-slate-700')}>
+                        {date.getDate()}
+                      </div>
+                      {dayEvents.slice(0, 2).map((event, idx) => (
+                        <div key={idx} className="text-xs bg-accent/10 text-accent px-1 py-0.5 rounded mb-0.5 truncate">
+                          {event.title}
+                        </div>
+                      ))}
+                      {dayEvents.length > 2 && <div className="text-xs text-slate-400">+{dayEvents.length - 2}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 浜嬩欢鍒楄〃鍜屽€掕鏃?*/}
+            <div className="space-y-6">
+              {/* 鍗冲皢鍒版潵鐨勪簨浠?- 鍙樉绀烘渶杩戠殑3涓?*/}
+              <div className="bg-white rounded-[28px] p-6 shadow-soft border border-white">
+                <h4 className="font-black text-lg mb-4">鈴?鍊掕鏃?/h4>
+                <div className="space-y-3">
+                  {events
+                    .filter(e => getEventDateTime(e, '23:59') > new Date())
+                    .sort((a, b) => getEventDateTime(a, '00:00') - getEventDateTime(b, '00:00'))
+                    .slice(0, 3)
+                    .map(event => {
+                      const countdown = getCountdown(event);
+                      return (
+                        <div key={event.id} className="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer" onClick={() => { setSelectedDate(new Date(`${event.date}T00:00:00`)); setShowDayEvents(true); }}>
+                          <p className="font-bold text-sm truncate">{event.title}</p>
+                          <p className={`text-xs font-bold ${countdown.color}`}>{countdown.text}</p>
+                          <p className="text-xs text-slate-500 mt-1">{event.date} {event.time}</p>
+                        </div>
+                      );
+                    })}
+                  {events.filter(e => getEventDateTime(e, '23:59') > new Date()).length === 0 && (
+                    <p className="text-sm text-slate-400">鏆傛棤鍗冲皢鍒版潵鐨勪簨浠?/p>
+                  )}
+                </div>
+              </div>
+
+              {/* 鎵€鏈変簨浠跺垪琛?*/}
+              <div className="bg-white rounded-[28px] p-6 shadow-soft border border-white">
+                <h4 className="font-black text-lg mb-4">馃搵 鎵€鏈夋棩绋?/h4>
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {events
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map(event => (
+                      <div key={event.id} className="p-3 rounded-2xl bg-slate-50 flex items-center gap-3">
+                        <div className={cx('w-3 h-10 rounded-full', event.priority === 'high' ? 'bg-rose-500' : event.priority === 'low' ? 'bg-emerald-500' : 'bg-amber-500')}></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-sm truncate">{event.title}</p>
+                          <p className="text-xs text-slate-500">{event.date} {event.time}</p>
+                        </div>
+                        <button onClick={() => deleteEvent(event.id)} className="text-rose-500 hover:bg-rose-50 w-8 h-8 rounded-full flex items-center justify-center">鉁?/button>
+                      </div>
+                    ))}
+                  {events.length === 0 && (
+                    <p className="text-sm text-slate-400">鐐瑰嚮鏃ュ巻娣诲姞浜嬩欢</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 鏌ョ湅褰撳ぉ鏃ョ▼寮圭獥 */}
+          {showDayEvents && selectedDate && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowDayEvents(false)}></div>
+              <div className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-lg p-6 animate-fadeUp">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-black text-xl">
+                    {selectedDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
+                  </h3>
+                  <button onClick={() => setShowDayEvents(false)} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center">鉁?/button>
+                </div>
+                
+                {/* 褰撳ぉ浜嬩欢鍒楄〃 */}
+                <div className="space-y-3 max-h-[400px] overflow-y-auto mb-4">
+                  {getEventsForDate(selectedDate).length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-8">褰撳ぉ鏆傛棤鏃ョ▼</p>
+                  ) : (
+                    getEventsForDate(selectedDate).map(event => (
+                      <div key={event.id} className="p-4 rounded-2xl bg-slate-50 hover:bg-slate-100 transition-all">
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="font-bold text-sm flex-1">{event.title}</p>
+                          <button onClick={() => { deleteEvent(event.id); }} className="text-rose-500 hover:bg-rose-50 w-6 h-6 rounded-full flex items-center justify-center text-xs ml-2">鉁?/button>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500">
+                          {event.time && <span>馃晲 {event.time}</span>}
+                          {event.location && <span>馃搷 {event.location}</span>}
+                          <span className={cx('px-2 py-0.5 rounded-full text-xs', 
+                            event.priority === 'high' ? 'bg-rose-100 text-rose-700' :
+                            event.priority === 'low' ? 'bg-emerald-100 text-emerald-700' :
+                            'bg-amber-100 text-amber-700'
+                          )}>
+                            {event.priority === 'high' ? '楂? : event.priority === 'low' ? '浣? : '涓?}
+                          </span>
+                          {event.type === 'insight' && <span className="text-purple-600">馃挕 娲炲療</span>}
+                        </div>
+                        {event.summary && (
+                          <p className="text-xs text-slate-600 mt-2 line-clamp-2">{event.summary}</p>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+                
+                {/* 娣诲姞鎸夐挳 */}
+                <button
+                  onClick={() => { setShowDayEvents(false); setShowAddModal(true); }}
+                  className="w-full py-3 rounded-2xl border-2 border-dashed border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all"
+                >
+                  + 鎵嬪姩娣诲姞鏃ョ▼
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 娣诲姞浜嬩欢寮圭獥 */}
+          {showAddModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowAddModal(false)}></div>
+              <div className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-md p-6 animate-fadeUp">
+                <h3 className="font-black text-xl mb-4">娣诲姞鏃ョ▼</h3>
+                <p className="text-sm text-slate-500 mb-4">
+                  {selectedDate?.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">鏍囬</label>
+                    <input
+                      value={newEvent.title}
+                      onChange={e => setNewEvent({ ...newEvent, title: e.target.value })}
+                      placeholder="杈撳叆浜嬩欢鏍囬"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">鏃堕棿</label>
+                    <input
+                      type="time"
+                      value={newEvent.time}
+                      onChange={e => setNewEvent({ ...newEvent, time: e.target.value })}
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">鍦扮偣</label>
+                    <input
+                      value={newEvent.location}
+                      onChange={e => setNewEvent({ ...newEvent, location: e.target.value })}
+                      placeholder="杈撳叆鍦扮偣锛堝彲閫夛級"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">浼樺厛绾?/label>
+                    <div className="flex gap-3">
+                      {['low', 'medium', 'high'].map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setNewEvent({ ...newEvent, priority: p })}
+                          className={cx(
+                            'flex-1 py-2 rounded-2xl font-bold text-sm',
+                            newEvent.priority === p ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600'
+                          )}
+                        >
+                          {p === 'low' ? '浣? : p === 'medium' ? '涓? : '楂?}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button onClick={() => setShowAddModal(false)} className="flex-1 py-3 rounded-2xl border-2 border-slate-200 font-bold hover:bg-slate-50">鍙栨秷</button>
+                  <button onClick={() => { addEvent(); setShowDayEvents(true); }} className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-primary to-accent text-white font-bold">娣诲姞</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      );
+    }
+
+    function NotesModule() {
+      const { showToast } = useContext(AppContext);
+      const defaultNotes = [
+        { tag: '浜у搧瀹氫綅', title: '鏍″洯淇℃伅杩囪浇鐨勬牳蹇冪煕鐩?, content: '涓嶆槸瀛︾敓涓嶄細绠＄悊鏃堕棿锛岃€屾槸閫氱煡婧愬お鍒嗘暎锛歈Q缇ゃ€佸叕浼楀彿銆佹捣鎶ャ€佺彮濮旇浆鍙戦兘缂哄皯缁熶竴缁撴瀯銆? },
+        { tag: 'AI 鑳藉姏', title: '浠?NLP 鎻愬彇鍒拌鍔?Agent', content: '绗竴灞傛彁鍙栨椂闂村湴鐐癸紝绗簩灞傜敓鎴愯鍔ㄥ缓璁紝绗笁灞傝仈鍔ㄦ棩鍘嗐€丵Q 棰戦亾鍜屾枃妗ｆ矇娣€銆? },
+        { tag: '璺紨琛ㄨ揪', title: '璇勫鏈€鍏冲績鐨勯獙璇侀棴鐜?, content: '鐢ㄩ仐婕忕巼銆佸悓姝ョ巼銆佽浆鍙戠巼銆佺粍闃熺巼璇存槑浜у搧浠峰€硷紝涓嶅彧灞曠ず鈥滆兘鐢熸垚鏂囧瓧鈥濄€? },
+        { tag: '鍟嗕笟寤跺睍', title: '鏍″洯鍦烘櫙鍚?PCG 鍐呭鐢熸€佹墿灞?, content: '璁插骇/瀹ｈ浼氬彲娌夋穩鎴愮煡璇嗗崱鐗囷紝璧涗簨鍜岀ぞ鍥㈡椿鍔ㄥ彲褰㈡垚棰戦亾鍐呭渚涚粰銆? }
+      ];
+      const [notes, setNotes] = useState(() => {
+        try {
+          const saved = localStorage.getItem('campus-notes');
+          return saved ? JSON.parse(saved) : defaultNotes;
+        } catch {
+          return defaultNotes;
+        }
+      });
+      const [memo, setMemo] = useState({ tag: '澶囧繕褰?, title: '', content: '' });
+
+      const saveNotes = (nextNotes) => {
+        setNotes(nextNotes);
+        localStorage.setItem('campus-notes', JSON.stringify(nextNotes));
+      };
+
+      const addMemo = () => {
+        if (!memo.title.trim() && !memo.content.trim()) return showToast('鍏堝啓涓€鐐瑰蹇樺唴瀹?, 'info');
+        const nextNote = {
+          id: Date.now(),
+          tag: memo.tag.trim() || '澶囧繕褰?,
+          title: memo.title.trim() || '鏈懡鍚嶅蹇?,
+          content: memo.content.trim()
+        };
+        saveNotes([nextNote, ...notes]);
+        setMemo({ tag: '澶囧繕褰?, title: '', content: '' });
+        showToast('澶囧繕褰曞凡淇濆瓨', 'success');
+      };
+
+      const deleteNote = (note) => {
+        saveNotes(notes.filter(item => (item.id || item.title) !== (note.id || note.title)));
+        showToast('澶囧繕褰曞凡鍒犻櫎', 'success');
+      };
+
+      return (
+        <section className="animate-fadeUp">
+          <PageTitle icon="馃摑" title="闅忚韩绗旇" subtitle="鎶?AI 鐢熸垚鐨勬礊瀵熸矇娣€鎴愬彲澶嶇敤鏉愭枡" />
+          <div className="bg-white rounded-[28px] p-6 shadow-soft border border-white mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-4 mb-4">
+              <input
+                value={memo.tag}
+                onChange={e => setMemo({ ...memo, tag: e.target.value })}
+                placeholder="鏍囩"
+                className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+              />
+              <input
+                value={memo.title}
+                onChange={e => setMemo({ ...memo, title: e.target.value })}
+                placeholder="澶囧繕鏍囬锛屼緥濡傦細璺紨瑕佽ˉ鐥涚偣楠岃瘉鏁版嵁"
+                className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+              />
+            </div>
+            <textarea
+              value={memo.content}
+              onChange={e => setMemo({ ...memo, content: e.target.value })}
+              placeholder="璁板綍璁胯皥缁撹銆佽瘎濮斿彲鑳借拷闂€佺礌鏉愰摼鎺ャ€佸垎宸ユ彁閱?.."
+              className="w-full h-28 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40 resize-none leading-relaxed"
+            />
+            <button onClick={addMemo} className="mt-4 w-full rounded-2xl py-3 bg-gradient-to-r from-primary to-accent text-white font-black hover:shadow-lg transition-all">娣诲姞澶囧繕褰?/button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {notes.map(note => (
+              <div key={note.id || note.title} className="bg-white rounded-[28px] p-6 shadow-soft border border-white hover:-translate-y-1 transition-all">
+                <span className="inline-flex px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-black mb-4">{note.tag}</span>
+                <h3 className="font-black text-lg mb-2">{note.title}</h3>
+                <p className="text-slate-600 leading-relaxed mb-5">{note.content}</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => showToast('宸蹭繚瀛樿嚦鑵捐鏂囨。锛堟紨绀猴級', 'success')} className="rounded-2xl py-3 border-2 border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all">杞吘璁枃妗?/button>
+                  <button onClick={() => deleteNote(note)} className="rounded-2xl py-3 border-2 border-rose-200 text-rose-500 font-bold hover:bg-rose-500 hover:text-white transition-all">鍒犻櫎</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    function BuddyRadarModule() {
+      const { showToast } = useContext(AppContext);
+      const buddies = [
+        { name: '寮犲悓瀛?, dept: '璁＄畻鏈哄闄?, match: 92, tags: ['AI 浜у搧', '鍓嶇', 'QQ 棰戦亾'], common: '閮藉叧娉?PCG 瀹ｈ浼? },
+        { name: '鏉庡悓瀛?, dept: '鏂伴椈浼犳挱瀛﹂櫌', match: 87, tags: ['鍐呭杩愯惀', '鐭棰?, '鐢ㄦ埛璁胯皥'], common: '閮藉湪鍑嗗鍒涙剰澶ц禌' },
+        { name: '鐜嬪悓瀛?, dept: '浜哄伐鏅鸿兘瀛﹂櫌', match: 81, tags: ['NLP', 'Agent', '璁烘枃'], common: '閮芥姤鍚?AI 瀛︽湳璁插骇' }
+      ];
+      return (
+        <section className="animate-fadeUp">
+          <PageTitle icon="馃摗" title="鎼瓙闆疯揪" subtitle="鐢ㄥ叡鍚屾棩绋嬪拰鍏磋叮鏍囩鍖归厤瀛︿範 / 姣旇禌 / 姹傝亴鎼瓙" />
+          <div className="rounded-[28px] bg-gradient-to-r from-primary to-accent p-6 text-white shadow-soft mb-6">
+            <p className="font-black text-lg mb-4">褰撳墠鐑棬鏃ョ▼</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {['鑵捐 PCG 瀹ｈ浼?, '鏍″洯 AI 浜у搧鍒涙剰澶ц禌', '澶фā鍨嬪墠娌胯搴?].map((item, index) => (
+                <div key={item} className="bg-white/15 rounded-2xl p-4 border border-white/20">
+                  <p className="font-black">{item}</p>
+                  <p className="text-sm text-white/75 mt-1">{[48, 36, 29][index]} 浜烘劅鍏磋叮</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {buddies.map(buddy => (
+              <div key={buddy.name} className="bg-white rounded-[28px] p-6 shadow-soft border border-white">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-black text-lg">{buddy.name[0]}</div>
+                  <div>
+                    <p className="font-black">{buddy.name}</p>
+                    <p className="text-sm text-slate-500">{buddy.dept}</p>
+                  </div>
+                </div>
+                <div className="mb-4">
+                  <div className="flex justify-between text-sm mb-1"><span className="text-slate-500">鍖归厤搴?/span><span className="font-black text-accent">{buddy.match}%</span></div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-primary to-accent" style={{ width: `${buddy.match}%` }}></div></div>
+                </div>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {buddy.tags.map(tag => <span key={tag} className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">{tag}</span>)}
+                </div>
+                <p className="text-sm text-slate-500 mb-5">猸?{buddy.common}</p>
+                <button onClick={() => showToast(`宸查€氳繃 QQ 棰戦亾鍚?${buddy.name} 鎵撴嫑鍛硷紙婕旂ず锛塦, 'success')} className="w-full rounded-2xl py-3 bg-gradient-to-r from-[#12B7F5] to-primary text-white font-bold">QQ 棰戦亾鎵撴嫑鍛?/button>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    function PageTitle({ icon, title, subtitle }) {
+      return (
+        <div className="mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-2xl">{icon}</div>
+            <div>
+              <h2 className="font-black text-3xl">{title}</h2>
+              <p className="text-slate-500 mt-1">{subtitle}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function AIConsole({ open, onClose, onSaveSuccess }) {
+      const { showToast } = useContext(AppContext);
+      const [config, setConfig] = useState({
+        provider: 'tencent',
+        openaiApiKey: '',
+        openaiBaseURL: 'https://api.openai.com/v1',
+        openaiModel: 'gpt-3.5-turbo',
+        anthropicApiKey: '',
+        anthropicBaseURL: 'https://api.anthropic.com',
+        anthropicModel: 'claude-3-haiku-20240307',
+        customBaseURL: '',
+        customApiKey: '',
+        customModel: '',
+        zhipuApiKey: '',
+        zhipuBaseURL: 'https://open.bigmodel.cn/api/paas/v4',
+        zhipuModel: 'glm-4.7',
+        zhipuVisionModel: 'glm-4.5v',
+        tencentSecretId: '',
+        tencentSecretKey: '',
+        tencentModel: 'hunyuan-turbos-latest'
+      });
+      const [loading, setLoading] = useState(false);
+      const [testing, setTesting] = useState(false);
+
+      useEffect(() => {
+        if (!open) return;
+        fetch(`${API_BASE}/api/config`)
+          .then(res => res.json())
+          .then(data => {
+            setConfig(prev => ({
+              ...prev,
+              provider: data.provider || 'tencent',
+              openaiBaseURL: data.openaiBaseURL || 'https://api.openai.com/v1',
+              openaiModel: data.openaiModel || 'gpt-3.5-turbo',
+              openaiConfigured: data.openaiConfigured || false,
+              anthropicBaseURL: data.anthropicBaseURL || 'https://api.anthropic.com',
+              anthropicModel: data.anthropicModel || 'claude-3-haiku-20240307',
+              anthropicConfigured: data.anthropicConfigured || false,
+              customBaseURL: data.customBaseURL || '',
+              customModel: data.customModel || '',
+              customConfigured: data.customConfigured || false,
+              zhipuBaseURL: data.zhipuBaseURL || 'https://open.bigmodel.cn/api/paas/v4',
+              zhipuModel: data.zhipuModel || 'glm-4.7',
+              zhipuVisionModel: data.zhipuVisionModel || 'glm-4.5v',
+              zhipuConfigured: data.zhipuConfigured || false,
+              tencentConfigured: data.tencentConfigured || false,
+              tencentModel: data.tencentModel || 'hunyuan-turbos-latest'
+            }));
+          })
+          .catch(error => showToast('鍔犺浇閰嶇疆澶辫触: ' + error.message, 'error'));
+      }, [open, showToast]);
+
+      const handleSave = async () => {
+        setLoading(true);
+        try {
+          const payload = { ...config };
+          delete payload.openaiConfigured;
+          delete payload.anthropicConfigured;
+          delete payload.customConfigured;
+          delete payload.zhipuConfigured;
+          delete payload.tencentConfigured;
+
+          const response = await fetch(`${API_BASE}/api/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json();
+          if (data.ok) {
+            showToast('閰嶇疆淇濆瓨鎴愬姛', 'success');
+            // 淇濆瓨鎴愬姛鍚庡埛鏂板仴搴风姸鎬?            if (onSaveSuccess) {
+              onSaveSuccess();
+            }
+            setTimeout(() => onClose(), 1000);
+          } else {
+            throw new Error(data.error || '淇濆瓨澶辫触');
+          }
+        } catch (error) {
+          showToast(error.message || '淇濆瓨澶辫触', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleTest = async () => {
+        setTesting(true);
+        try {
+          const payload = { ...config };
+          const response = await fetch(`${API_BASE}/api/config/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json();
+          if (data.ok) {
+            showToast(data.message || '杩炴帴娴嬭瘯鎴愬姛', 'success');
+          } else {
+            throw new Error(data.error || '杩炴帴娴嬭瘯澶辫触');
+          }
+        } catch (error) {
+          showToast(error.message || '杩炴帴娴嬭瘯澶辫触', 'error');
+        } finally {
+          setTesting(false);
+        }
+      };
+
+      const updateConfig = (field, value) => {
+        setConfig(prev => ({ ...prev, [field]: value }));
+      };
+
+      if (!open) return null;
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
+          <div className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-fadeUp">
+            <div className="h-1.5 bg-gradient-to-r from-primary to-accent"></div>
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center text-2xl">馃</div>
+                  <div>
+                    <h3 className="font-black text-xl">AI 鎺у埗鍙?/h3>
+                    <p className="text-xs text-slate-500">閰嶇疆浣犺嚜宸辩殑澶фā鍨?API</p>
+                  </div>
+                </div>
+                <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-slate-100">鉁?/button>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-bold text-slate-700 mb-3">閫夋嫨 AI 鎻愪緵鍟?/label>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: 'openai', label: 'OpenAI', desc: 'GPT-3.5/GPT-4' },
+                    { id: 'anthropic', label: 'Anthropic', desc: 'Claude 3' },
+                    { id: 'zhipu', label: '鏅鸿氨 BigModel', desc: 'GLM 鏂囨湰 + 瑙嗚璇嗗埆' },
+                    { id: 'openai-compatible', label: '鑷畾涔夊吋瀹?API', desc: 'OpenAI 鏍煎紡鍏煎' },
+                    { id: 'tencent', label: '鑵捐娣峰厓', desc: '鑵捐浜戞贩鍏冨ぇ妯″瀷' }
+                  ].map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => updateConfig('provider', item.id)}
+                      className={cx(
+                        'p-4 rounded-2xl border-2 text-left transition-all',
+                        config.provider === item.id ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-primary/30'
+                      )}
+                    >
+                      <p className="font-bold text-sm">{item.label}</p>
+                      <p className="text-xs text-slate-500 mt-1">{item.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {config.provider === 'openai' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={config.openaiApiKey}
+                      onChange={e => updateConfig('openaiApiKey', e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Base URL</label>
+                    <input
+                      value={config.openaiBaseURL}
+                      onChange={e => updateConfig('openaiBaseURL', e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Model</label>
+                    <input
+                      value={config.openaiModel}
+                      onChange={e => updateConfig('openaiModel', e.target.value)}
+                      placeholder="gpt-3.5-turbo"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {config.provider === 'anthropic' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={config.anthropicApiKey}
+                      onChange={e => updateConfig('anthropicApiKey', e.target.value)}
+                      placeholder="sk-ant-..."
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Base URL</label>
+                    <input
+                      value={config.anthropicBaseURL}
+                      onChange={e => updateConfig('anthropicBaseURL', e.target.value)}
+                      placeholder="https://api.anthropic.com"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Model</label>
+                    <input
+                      value={config.anthropicModel}
+                      onChange={e => updateConfig('anthropicModel', e.target.value)}
+                      placeholder="claude-3-haiku-20240307"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {config.provider === 'openai-compatible' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Base URL</label>
+                    <input
+                      value={config.customBaseURL}
+                      onChange={e => updateConfig('customBaseURL', e.target.value)}
+                      placeholder="https://api.deepseek.com锛堣嚜鍔ㄨˉ鍏?/v1锛?
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                    <p className="mt-1.5 text-xs text-slate-500">馃挕 鎻愮ず锛氳緭鍏ュ煙鍚嶅嵆鍙紙濡?https://api.deepseek.com锛夛紝绯荤粺浼氳嚜鍔ㄦ坊鍔?/v1 璺緞</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={config.customApiKey}
+                      onChange={e => updateConfig('customApiKey', e.target.value)}
+                      placeholder="sk-... 鎴栫被浼兼牸寮?
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Model</label>
+                    <input
+                      value={config.customModel}
+                      onChange={e => updateConfig('customModel', e.target.value)}
+                      placeholder="deepseek-chat / deepseek-coder"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                    <p className="mt-1.5 text-xs text-slate-500">Deepseek 甯哥敤妯″瀷锛歞eepseek-chat銆乨eepseek-coder</p>
+                  </div>
+                </div>
+              )}
+
+              {config.provider === 'zhipu' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={config.zhipuApiKey}
+                      onChange={e => updateConfig('zhipuApiKey', e.target.value)}
+                      placeholder="浠?bigmodel.cn 鑾峰彇鐨?API Key"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Base URL</label>
+                    <input
+                      value={config.zhipuBaseURL}
+                      onChange={e => updateConfig('zhipuBaseURL', e.target.value)}
+                      placeholder="https://open.bigmodel.cn/api/paas/v4"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">鏂囨湰妯″瀷</label>
+                      <input
+                        value={config.zhipuModel}
+                        onChange={e => updateConfig('zhipuModel', e.target.value)}
+                        placeholder="glm-4.7"
+                        className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">瑙嗚妯″瀷</label>
+                      <input
+                        value={config.zhipuVisionModel}
+                        onChange={e => updateConfig('zhipuVisionModel', e.target.value)}
+                        placeholder="glm-4.5v"
+                        className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">涓婁紶娴锋姤/鎴浘鏃朵細浼樺厛璋冪敤瑙嗚妯″瀷锛岃瘑鍒彲瑙佹枃瀛椼€佺増寮忕嚎绱㈠拰娲诲姩淇℃伅銆?/p>
+                </div>
+              )}
+
+              {config.provider === 'tencent' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Secret ID</label>
+                    <input
+                      value={config.tencentSecretId}
+                      onChange={e => updateConfig('tencentSecretId', e.target.value)}
+                      placeholder="鑵捐浜?Secret ID"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Secret Key</label>
+                    <input
+                      type="password"
+                      value={config.tencentSecretKey}
+                      onChange={e => updateConfig('tencentSecretKey', e.target.value)}
+                      placeholder="鑵捐浜?Secret Key"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Model</label>
+                    <input
+                      value={config.tencentModel}
+                      onChange={e => updateConfig('tencentModel', e.target.value)}
+                      placeholder="hunyuan-turbos-latest"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleTest}
+                  disabled={testing}
+                  className="flex-1 rounded-2xl py-3 border-2 border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all disabled:opacity-50"
+                >
+                  {testing ? '娴嬭瘯涓?..' : '娴嬭瘯杩炴帴'}
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={loading}
+                  className="flex-1 rounded-2xl py-3 bg-gradient-to-r from-primary to-accent text-white font-bold hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  {loading ? '淇濆瓨涓?..' : '淇濆瓨閰嶇疆'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function FabChat() {
+      const { showToast } = useContext(AppContext);
+      const [open, setOpen] = useState(false);
+      const [messages, setMessages] = useState([{ role: 'ai', text: '浣犲ソ锛屾垜鏄牎鍥儏鎶ュ畼 AI 鍔╂墜銆備綘鍙互闂垜濡備綍鏁寸悊閫氱煡銆佸噯澶囨瘮璧涙垨浼樺寲璺紨銆? }]);
+      const [input, setInput] = useState('');
+      const [loading, setLoading] = useState(false);
+      const quick = ['甯垜浼樺寲姣旇禌浜偣', '鎬庝箞楠岃瘉杩欎釜鐥涚偣锛?, '缁欐垜涓€涓潰璇曢棶棰?];
+
+      const send = async (preset) => {
+        const content = (preset || input).trim();
+        if (!content || loading) return;
+        const nextMessages = [...messages, { role: 'user', text: content }];
+        setMessages(nextMessages);
+        setInput('');
+        setLoading(true);
+        try {
+          const data = await apiPost('/api/chat', { question: content, history: nextMessages });
+          setMessages(prev => [...prev, { role: 'ai', text: data.reply }]);
+        } catch (error) {
+          showToast(error.message || 'AI 鍔╂墜璇锋眰澶辫触', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="fixed right-6 bottom-6 z-40 flex flex-col items-end gap-3">
+          {open && (
+            <div className="glass-dark w-[360px] max-w-[calc(100vw-32px)] rounded-[28px] shadow-2xl border border-white/10 overflow-hidden animate-fadeUp">
+              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-white font-black"><span>鉁?/span>AI 鍔╂墜</div>
+                <button className="text-white/70 hover:text-white" onClick={() => setOpen(false)}>鉁?/button>
+              </div>
+              <div className="h-80 overflow-y-auto p-4 space-y-3">
+                {messages.map((msg, index) => (
+                  <div key={index} className={cx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                    <div className={cx('max-w-[82%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed', msg.role === 'user' ? 'bg-accent text-white rounded-br-md' : 'bg-white/10 text-white rounded-bl-md')}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {loading && <div className="text-white/70 text-sm">AI 姝ｅ湪鎬濊€?..</div>}
+              </div>
+              <div className="p-4 border-t border-white/10">
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {quick.map(item => <button key={item} onClick={() => send(item)} className="px-3 py-1.5 rounded-full bg-white/10 text-white/80 text-xs hover:bg-white/20">{item}</button>)}
+                </div>
+                <div className="flex gap-2">
+                  <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="杈撳叆闂..." className="flex-1 rounded-2xl bg-white/10 border border-white/10 px-4 py-3 text-white placeholder:text-white/40 outline-none" />
+                  <button onClick={() => send()} disabled={loading} className="rounded-2xl bg-accent text-white px-4 font-bold">鍙戦€?/button>
+                </div>
+              </div>
+            </div>
+          )}
+          <button onClick={() => setOpen(!open)} className="w-15 h-15 w-[60px] h-[60px] rounded-full bg-gradient-to-br from-accent to-primary text-white shadow-xl shadow-purple-500/30 flex items-center justify-center text-2xl hover:scale-110 transition-all">{open ? '脳' : '鉁?}</button>
+        </div>
+      );
+    }
+
+    function InterviewModal({ open, onClose, context }) {
+      const { showToast } = useContext(AppContext);
+      const [messages, setMessages] = useState([]);
+      const [input, setInput] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      useEffect(() => {
+        if (!open) return;
+        setMessages([]);
+        setInput('');
+        setLoading(true);
+        apiPost('/api/interview', { content: context })
+          .then(data => setMessages([{ role: 'ai', text: data.reply }]))
+          .catch(error => showToast(error.message || '闈㈣瘯闂鐢熸垚澶辫触', 'error'))
+          .finally(() => setLoading(false));
+      }, [open, context, showToast]);
+
+      const send = async () => {
+        const answer = input.trim();
+        if (!answer || loading) return;
+        const next = [...messages, { role: 'user', text: answer }];
+        setMessages(next);
+        setInput('');
+        setLoading(true);
+        try {
+          const data = await apiPost('/api/interview', { content: context, answer, history: next });
+          setMessages(prev => [...prev, { role: 'ai', text: data.reply }]);
+        } catch (error) {
+          showToast(error.message || '闈㈣瘯 Agent 璇锋眰澶辫触', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      if (!open) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
+          <div className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-2xl overflow-hidden animate-fadeUp">
+            <div className="h-1.5 bg-gradient-to-r from-accent to-primary"></div>
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-accent to-primary text-white flex items-center justify-center text-2xl">馃</div>
+                  <div>
+                    <h3 className="font-black text-xl">妯℃嫙闈㈣瘯 Agent</h3>
+                    <p className="text-xs text-slate-500">鍥寸粫浜у搧銆丄I 鑳藉姏涓?PCG 鐢熸€佽拷闂?/p>
+                  </div>
+                </div>
+                <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-slate-100">鉁?/button>
+              </div>
+              <div className="h-[360px] overflow-y-auto rounded-3xl bg-slate-50 p-4 space-y-3">
+                {messages.map((msg, index) => (
+                  <div key={index} className={cx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                    <div className={cx('max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed', msg.role === 'user' ? 'bg-accent text-white rounded-br-md' : 'bg-white border border-slate-200 rounded-bl-md text-slate-700')}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {loading && <div className="text-sm text-slate-500">Agent 姝ｅ湪鐢熸垚...</div>}
+              </div>
+              <div className="mt-4 flex gap-3">
+                <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="杈撳叆浣犵殑鍥炵瓟..." className="flex-1 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-accent/40" />
+                <button onClick={send} disabled={loading} className="rounded-2xl bg-gradient-to-r from-accent to-primary text-white px-6 font-black">鍙戦€?/button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+      componentDidCatch(error, info) {
+        console.error(error, info);
+      }
+      render() {
+        if (!this.state.hasError) return this.props.children;
+        return (
+          <div className="min-h-screen flex items-center justify-center p-8">
+            <div className="bg-white rounded-[28px] shadow-soft p-8 max-w-lg text-center">
+              <div className="text-5xl mb-4">鈿狅笍</div>
+              <h2 className="font-black text-2xl mb-2">鍓嶇娓叉煋鍑虹幇寮傚父</h2>
+              <p className="text-slate-500 mb-5">璇锋墦寮€娴忚鍣ㄦ帶鍒跺彴鏌ョ湅鍏蜂綋鎶ラ敊锛屾垨鍒锋柊椤甸潰閲嶈瘯銆?/p>
+              <pre className="text-left text-xs bg-slate-50 rounded-2xl p-3 overflow-auto mb-5">{String(this.state.error?.message || this.state.error || '')}</pre>
+              <button onClick={() => location.reload()} className="rounded-2xl bg-primary text-white px-6 py-3 font-black">鍒锋柊椤甸潰</button>
+            </div>
+          </div>
+        );
+      }
+    }
+
+    function App() {
+      const [activeTab, setActiveTab] = useState(0);
+      const [health, setHealth] = useState(null);
+      const [agentOpen, setAgentOpen] = useState(false);
+      const [aiConsoleOpen, setAIConsoleOpen] = useState(false);
+      const [interviewContext, setInterviewContext] = useState('鏍″洯鎯呮姤瀹?Insight Campus锛氱敤 AI 瑙ｆ瀽鏍″洯缇よ亰閫氱煡銆佹捣鎶ュ拰 DDL锛屽苟鑱斿姩 QQ 棰戦亾銆佽吘璁柊闂汇€佽吘璁枃妗ｅ拰鏃ュ巻銆?);
+      const [toasts, setToasts] = useState([]);
+      const [calendarTasks, setCalendarTasks] = useState([
+        { id: 1, text: '楂樻暟浣滀笟鎻愪氦', date: '4鏈?8鏃?23:59', location: '璇剧▼骞冲彴', priority: 'high', synced: false },
+        { id: 2, text: '绀惧洟渚嬩細', date: '鍛ㄤ笁 19:00', location: '瀛︾敓娲诲姩涓績 302', priority: 'medium', synced: false },
+        { id: 3, text: 'AI 浜у搧鍒涙剰澶ц禌璺紨褰╂帓', date: '4鏈?0鏃?20:00', location: '绾夸笂浼氳', priority: 'high', synced: false }
+      ]);
+
+      const showToast = useCallback((message, type = 'success') => {
+        const id = Date.now() + Math.random();
+        setToasts(prev => [...prev, { id, message, type }]);
+      }, []);
+
+      const removeToast = useCallback(id => setToasts(prev => prev.filter(item => item.id !== id)), []);
+      const addCalendarTask = useCallback(task => {
+        setCalendarTasks(prev => [task, ...prev]);
+        // 鍚屾椂淇濆瓨鍒版棩鍘嗙殑 localStorage
+        try {
+          const savedEvents = localStorage.getItem('calendar-events');
+          const events = savedEvents ? JSON.parse(savedEvents) : [];
+          const parsed = parseCalendarDateTime(task.timeText || task.date || task.time || task.text || task.title, new Date());
+          
+          events.push({
+            id: task.id,
+            title: task.title || task.text || '鏈懡鍚嶄簨浠?,
+            date: parsed.date,
+            time: parsed.time,
+            location: task.location || '',
+            priority: task.priority || 'medium',
+            type: task.type || 'task',
+            summary: task.summary || ''
+          });
+          localStorage.setItem('calendar-events', JSON.stringify(events));
+        } catch (error) {
+          console.error('淇濆瓨鏃ュ巻浜嬩欢澶辫触:', error);
+        }
+      }, []);
+
+      // 鍒锋柊鍋ュ悍鐘舵€?      const refreshHealth = useCallback(() => {
+        apiHealth()
+          .then(setHealth)
+          .catch(error => {
+            setHealth({ apiConfigured: false, model: 'offline', lastProviderError: error.message });
+          });
+      }, []);
+
+      useEffect(() => {
+        refreshHealth();
+      }, [refreshHealth]);
+
+      const contextValue = useMemo(() => ({ showToast, addCalendarTask, setAgentOpen, setInterviewContext, setAIConsoleOpen }), [showToast, addCalendarTask, setAIConsoleOpen]);
+
+      return (
+        <AppContext.Provider value={contextValue}>
+          <div className="min-h-screen">
+            <div className="fixed inset-0 pointer-events-none overflow-hidden">
+              <div className="absolute -top-28 -right-24 w-96 h-96 rounded-full bg-primary/10 blur-3xl"></div>
+              <div className="absolute bottom-0 left-[220px] w-[520px] h-[520px] rounded-full bg-accent/10 blur-3xl"></div>
+            </div>
+            <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} health={health} onOpenAIConsole={() => setAIConsoleOpen(true)} />
+            <main className="relative ml-[274px] min-h-screen p-8">
+              <div className="max-w-6xl mx-auto">
+                {activeTab === 0 && <IntelligenceCenter />}
+                {activeTab === 1 && <RealCalendar />}
+                {activeTab === 2 && <NotesModule />}
+                {activeTab === 3 && <BuddyRadarModule />}
+              </div>
+            </main>
+            <FabChat />
+            <AIConsole open={aiConsoleOpen} onClose={() => setAIConsoleOpen(false)} onSaveSuccess={refreshHealth} />
+            <InterviewModal open={agentOpen} onClose={() => setAgentOpen(false)} context={interviewContext} />
+            <div className="fixed right-6 top-6 z-[60] space-y-3">
+              {toasts.map(toast => <Toast key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />)}
+            </div>
+          </div>
+        </AppContext.Provider>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    );
+  </script>
+</body>
+</html>
