@@ -1,0 +1,17 @@
+{
+  "name": "insight-campus-fixed",
+  "version": "1.0.0",
+  "private": true,
+  "description": "校园情报官 Insight Campus - 腾讯 PCG 校园 AI 产品创意大赛 Demo",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {}
+}

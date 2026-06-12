@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>校园情报官 Insight Campus | 腾讯 PCG AI 产品创意 Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#0052D9',
+            accent: '#7C3AED',
+            ink: '#111827'
+          },
+          boxShadow: {
+            soft: '0 18px 60px rgba(17, 24, 39, 0.10)'
+          },
+          keyframes: {
+            float: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-8px)' } },
+            fadeUp: { '0%': { opacity: 0, transform: 'translateY(18px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
+            scan: { '0%': { transform: 'translateY(-120%)' }, '100%': { transform: 'translateY(120%)' } }
+          },
+          animation: {
+            float: 'float 3s ease-in-out infinite',
+            fadeUp: 'fadeUp .45s ease-out both',
+            scan: 'scan 2s ease-in-out infinite'
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .glass { background: rgba(255,255,255,.82); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); }
+    .glass-dark { background: rgba(17,24,39,.88); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); }
+    .gradient-text { background: linear-gradient(135deg,#0052D9,#7C3AED); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body class="bg-slate-100 text-ink">
+  <div id="root">
+    <div class="min-h-screen flex items-center justify-center">
+      <div class="text-center">
+        <div class="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin mx-auto mb-4"></div>
+        <p class="text-slate-500">校园情报官启动中...</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    const { useCallback, useContext, useEffect, useMemo, useRef, useState, createContext } = React;
+
+    const API_BASE = 'static-demo';
+
+    const AppContext = createContext(null);
+
+    function cx(...items) {
+      return items.filter(Boolean).join(' ');
+    }
+
+    function formatLocalDate(date) {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function parseCalendarDateTime(rawText, fallbackDate = new Date()) {
+      const text = String(rawText || '').replace(/\s+/g, ' ').trim();
+      const base = new Date(fallbackDate);
+      if (!text) return { date: formatLocalDate(base), time: '' };
+
+      let date = null;
+      let match = text.match(/(\d{4})[-/.年](\d{1,2})(?:[-/.月](\d{1,2}))[日号]?/);
+      if (match) {
+        date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      }
+
+      if (!date) {
+        match = text.match(/(\d{1,2})月\s*(\d{1,2})[日号]?/);
+        if (match) date = new Date(base.getFullYear(), Number(match[1]) - 1, Number(match[2]));
+      }
+
+      if (!date && /后天/.test(text)) {
+        date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 2);
+      } else if (!date && /明天|次日/.test(text)) {
+        date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1);
+      } else if (!date && /今天|今晚|当天/.test(text)) {
+        date = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+      }
+
+      if (!date) {
+        const weekMatch = text.match(/(?:周|星期)([一二三四五六日天1-7])/);
+        if (weekMatch) {
+          const map = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 0 };
+          const target = map[weekMatch[1]];
+          const current = base.getDay();
+          let diff = (target - current + 7) % 7;
+          if (diff === 0) diff = 7;
+          date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + diff);
+        }
+      }
+
+      const periodMatch = text.match(/(上午|下午|晚上|中午|凌晨)?\s*(\d{1,2})[:：](\d{1,2})/);
+      const pointMatch = !periodMatch ? text.match(/(上午|下午|晚上|中午|凌晨)?\s*(\d{1,2})点(?:半|(\d{1,2})分?)?/) : null;
+      let time = '';
+      if (periodMatch || pointMatch) {
+        const item = periodMatch || pointMatch;
+        let hour = Number(item[2]);
+        let minute = item[3] ? Number(item[3]) : (pointMatch && /点半/.test(item[0]) ? 30 : 0);
+        const period = item[1] || '';
+        if ((period === '下午' || period === '晚上') && hour < 12) hour += 12;
+        if (period === '中午' && hour < 11) hour += 12;
+        if (period === '凌晨' && hour === 12) hour = 0;
+        if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+          time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        }
+      }
+
+      return { date: formatLocalDate(date || base), time };
+    }
+
+    const STATIC_DEMO_SAMPLE_OCR = '腾讯 PCG 校园 AI 产品创意大赛\n提交截止：4月30日 23:59\n提交方式：线上提交\n材料要求：Demo、路演稿、痛点验证材料\n建议提前完成演示录屏并检查附件。';
+
+    function demoDetectType(text) {
+      if (/(宣讲|招聘|校招|面试|内推|offer|实习)/i.test(text)) return 'recruit';
+      if (/(讲座|报告|论坛|学术|论文|seminar|workshop)/i.test(text)) return 'lecture';
+      if (/(比赛|大赛|竞赛|项目|路演|答辩|hackathon|PCG)/i.test(text)) return 'contest';
+      if (/(作业|ddl|deadline|截止|提交|实验报告|课程论文)/i.test(text)) return 'assignment';
+      if (/(例会|会议|班会|组会|社团|部门会)/i.test(text)) return 'meeting';
+      if (/(活动|招新|志愿|晚会|观影|运动会)/i.test(text)) return 'activity';
+      return 'general';
+    }
+
+    function demoTypeLabel(type) {
+      return ({
+        recruit: '招聘/宣讲',
+        lecture: '讲座/学术',
+        contest: '比赛/项目',
+        assignment: '作业/DDL',
+        meeting: '会议/社团',
+        activity: '校园活动',
+        general: '通用信息'
+      })[type] || '通用信息';
+    }
+
+    function demoPickTitle(text, type) {
+      const lines = String(text || '').split(/\r?\n|。|；/).map(s => s.trim()).filter(Boolean);
+      const hit = lines.find(line => /(腾讯|PCG|比赛|大赛|宣讲|招聘|讲座|作业|DDL|例会|活动|通知|招新)/i.test(line));
+      return (hit || lines[0] || demoTypeLabel(type)).replace(/^(通知|各位同学|同学们)[:：，,\s]*/g, '').slice(0, 32);
+    }
+
+    function demoExtractTime(text) {
+      const value = String(text || '');
+      const match = value.match(/(\d{4}[年/-]\d{1,2}[月/-]\d{1,2}[日号]?\s*(?:上午|下午|晚上|中午)?\s*\d{1,2}[:：点]\d{0,2})|(\d{1,2}月\s*\d{1,2}[日号]?\s*(?:上午|下午|晚上|中午)?\s*\d{1,2}[:：点]\d{0,2})|((?:周|星期)[一二三四五六日天]\s*(?:上午|下午|晚上|中午)?\s*\d{1,2}[:：点]\d{0,2})|(\d{1,2}月\s*\d{1,2}[日号]?)|(\d{1,2}[:：]\d{2})/);
+      return match ? match[0].replace(/点$/, ':00') : '待确认';
+    }
+
+    function demoExtractLocation(text) {
+      const value = String(text || '');
+      const match = value.match(/(?:地点|地址|会议室|教室|提交方式)[:：]\s*([^，。；;\n]+)|((?:线上提交|线上会议|腾讯会议|图书馆|报告厅|活动中心|教学楼|实验室|学院|教室)[^，。；;\n]*)/i);
+      return match ? (match[1] || match[2]).trim() : '待确认';
+    }
+
+    function demoBuildResult(text, source = 'static-demo-ai') {
+      const type = demoDetectType(text);
+      const topic = demoPickTitle(text, type);
+      const time = demoExtractTime(text);
+      const location = demoExtractLocation(text);
+      const parsed = parseCalendarDateTime(time, new Date());
+      const priority = ['contest', 'assignment', 'recruit'].includes(type) ? 'high' : 'medium';
+      const playbook = {
+        contest: {
+          title: '把比赛 DDL 拆成可执行提交计划',
+          actions: ['确认提交入口和截止时间', '整理 Demo 与演示录屏', '完善路演稿和痛点验证材料', '提交前做附件与格式检查'],
+          summary: '这条信息适合被拆成“Demo、路演稿、痛点验证、最终提交”四条执行线。建议把截止时间同步日历，并把材料清单沉淀到随身笔记，避免最后一天同时赶产品和文档。',
+          pcg: ['QQ 频道：发布组队与进度卡片', '腾讯文档：协作路演稿和访谈证据', '腾讯视频：沉淀 Demo 演示录屏', '腾讯混元/BigModel：模拟评委追问']
+        },
+        assignment: {
+          title: '把 DDL 从焦虑提醒变成行动清单',
+          actions: ['拆分资料收集、初稿、检查、提交', '预留至少 20% 缓冲时间', '提交前核对附件和命名规范'],
+          summary: '课程 DDL 的风险不在于不知道要交，而在于没有拆解执行步骤。建议立即同步日历，并把要求、格式和附件清单放入笔记。',
+          pcg: ['腾讯文档：多人协作编辑', 'QQ 群：同步小组进度', 'AI 助手：生成提交检查清单']
+        },
+        lecture: {
+          title: '把讲座通知变成可复用知识卡片',
+          actions: ['提前了解主讲人和主题', '准备 3 个问题', '讲座后整理 5 条可引用观点'],
+          summary: '讲座类信息适合从“到场提醒”升级为“知识沉淀”。建议把时间地点同步日历，结束后整理为一页式笔记。',
+          pcg: ['腾讯文档：生成讲座纪要', '腾讯新闻：延展行业背景', 'QQ 频道：发起同好讨论']
+        },
+        recruit: {
+          title: '把宣讲会转成求职准备计划',
+          actions: ['提前阅读岗位 JD', '准备 60 秒项目介绍', '宣讲后 24 小时内迭代简历'],
+          summary: '宣讲招聘类通知的价值在后续行动。建议提前准备项目经历、记录投递入口，并用模拟面试 Agent 练习追问。',
+          pcg: ['QQ 频道：沉淀宣讲问答', '腾讯文档：管理简历版本', '腾讯新闻：补充行业背景']
+        },
+        general: {
+          title: '把碎片通知转成结构化校园情报',
+          actions: ['确认时间地点', '判断是否需要同步日历', '必要时转发给同伴'],
+          summary: '当前信息已经被整理为主题、时间、地点和行动建议。适合先同步明确任务，再将背景材料沉淀为笔记。',
+          pcg: ['QQ：分发与讨论', '腾讯文档：沉淀资料', 'AI 助手：提炼摘要']
+        }
+      };
+      const item = playbook[type] || playbook.general;
+      return {
+        ok: true,
+        source,
+        type,
+        task: {
+          topic,
+          time: time === '待确认' ? `${parsed.date} ${parsed.time || ''}`.trim() : time,
+          location,
+          type,
+          typeLabel: demoTypeLabel(type),
+          priority,
+          actionItems: item.actions
+        },
+        news: {
+          title: item.title,
+          summary: item.summary,
+          preparation: item.actions,
+          pcgMapping: item.pcg
+        },
+        shareCard: {
+          title: topic,
+          subtitle: `${time} · ${location}`,
+          bullets: item.actions.slice(0, 3)
+        },
+        rawText: text
+      };
+    }
+
+    function demoWait(ms = 550) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function apiPost(path, payload = {}) {
+      await demoWait();
+      if (path === '/api/analyze') return demoBuildResult(payload.content || payload.text || '腾讯 PCG 校园 AI 产品创意大赛，4月30日23:59截止提交，线上提交。');
+      if (path === '/api/analyze-image') {
+        const result = demoBuildResult(STATIC_DEMO_SAMPLE_OCR, 'static-demo-vision');
+        result.ocrText = STATIC_DEMO_SAMPLE_OCR;
+        result.ocrSource = 'static-demo-bigmodel';
+        return result;
+      }
+      if (path === '/api/chat') {
+        return { ok: true, source: 'static-demo-ai', reply: '建议把 Demo 讲成“校园信息过载 → AI 结构化 → 日历执行 → QQ 频道分发 → 笔记沉淀”的闭环，评委会更容易理解产品价值。' };
+      }
+      if (path === '/api/interview') {
+        return { ok: true, source: 'static-demo-agent', reply: '追问：如果没有 AI，这个产品会退化成普通日历和笔记。请你用一句话说明 AI 在通知理解、海报识别和行动项生成中不可替代的价值。' };
+      }
+      return { ok: true };
+    }
+
+    async function apiHealth() {
+      await demoWait(180);
+      return {
+        ok: true,
+        service: 'Insight Campus Static Demo',
+        apiConfigured: true,
+        provider: 'zhipu',
+        mode: 'static-demo',
+        model: '静态演示模式 · BigModel 多模态能力模拟',
+        mockMode: 'static',
+        config: {
+          provider: 'zhipu',
+          configured: true,
+          zhipuBaseURL: 'https://open.bigmodel.cn/api/paas/v4',
+          zhipuModel: 'glm-4.7',
+          zhipuVisionModel: 'glm-4.5v',
+          zhipuConfigured: true
+        }
+      };
+    }
+
+    function parseMaybeDate(timeText) {
+      const text = String(timeText || '').trim();
+      const fallback = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const parsed = parseCalendarDateTime(text, fallback);
+      return new Date(`${parsed.date}T${parsed.time || '09:00'}:00`);
+    }
+
+    function escapeIcs(value) {
+      return String(value || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\n/g, '\\n')
+        .replace(/,/g, '\\,')
+        .replace(/;/g, '\\;');
+    }
+
+    function formatIcsDate(date) {
+      return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    }
+
+    function downloadIcs(task, summary) {
+      const start = parseMaybeDate(task.time);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const title = escapeIcs(task.topic || '校园事项');
+      const ics = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Insight Campus//CN',
+        'CALSCALE:GREGORIAN',
+        'BEGIN:VEVENT',
+        `UID:${Date.now()}@insight-campus`,
+        `DTSTAMP:${formatIcsDate(new Date())}`,
+        `DTSTART:${formatIcsDate(start)}`,
+        `DTEND:${formatIcsDate(end)}`,
+        `SUMMARY:${title}`,
+        `LOCATION:${escapeIcs(task.location)}`,
+        `DESCRIPTION:${escapeIcs(summary || task.actionItems?.join('；') || '')}`,
+        'BEGIN:VALARM',
+        'TRIGGER:-PT30M',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:${title} 30 分钟后开始`,
+        'END:VALARM',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n');
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(task.topic || 'campus-task').replace(/[\\/:*?"<>|]/g, '_')}.ics`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function readFileAsDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function Toast({ toast, onClose }) {
+      useEffect(() => {
+        const timer = setTimeout(onClose, 3200);
+        return () => clearTimeout(timer);
+      }, [onClose]);
+      const palette = toast.type === 'error'
+        ? 'bg-rose-500'
+        : toast.type === 'info'
+          ? 'bg-primary'
+          : 'bg-emerald-500';
+      return (
+        <div className="animate-fadeUp">
+          <div className={cx('rounded-2xl shadow-soft px-5 py-3 text-white flex items-center gap-3', palette)}>
+            <span>{toast.type === 'error' ? '⚠️' : toast.type === 'info' ? 'ℹ️' : '✅'}</span>
+            <span className="font-medium text-sm">{toast.message}</span>
+          </div>
+        </div>
+      );
+    }
+
+    function HealthBadge({ health }) {
+      const configured = Boolean(health?.apiConfigured);
+      
+      // 获取提供商名称
+      const getProviderName = (provider) => {
+        const names = {
+          'tencent': '腾讯混元',
+          'zhipu': '智谱 BigModel',
+          'openai': 'OpenAI',
+          'anthropic': 'Anthropic',
+          'openai-compatible': '自定义 API'
+        };
+        return names[provider] || provider || 'AI';
+      };
+      
+      const providerName = getProviderName(health?.provider);
+      const modelName = health?.model || '';
+      
+      return (
+        <div className={cx(
+          'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border',
+          configured ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+        )}>
+          <span className={cx('w-2 h-2 rounded-full', configured ? 'bg-emerald-500' : 'bg-amber-500')}></span>
+          {configured ? `${providerName} 真实调用 · ${modelName}` : 'Mock 演示模式 · 可无密钥运行'}
+        </div>
+      );
+    }
+
+    function Sidebar({ activeTab, setActiveTab, health, onOpenAIConsole }) {
+      const items = [
+        { id: 0, label: '情报中心', icon: '🧠' },
+        { id: 1, label: '情报日历', icon: '📅' },
+        { id: 2, label: '随身笔记', icon: '📝' },
+        { id: 3, label: '搭子雷达', icon: '📡' }
+      ];
+      return (
+        <aside className="fixed left-0 top-0 bottom-0 w-[274px] glass border-r border-white/60 z-30 flex flex-col">
+          <div className="p-6 border-b border-slate-200/70">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center shadow-lg shadow-blue-500/20">🎓</div>
+              <div>
+                <h1 className="font-black text-lg tracking-tight">校园情报官</h1>
+                <p className="text-xs text-slate-500">Insight Campus</p>
+              </div>
+            </div>
+            <div className="mt-5"><HealthBadge health={health} /></div>
+          </div>
+          <nav className="p-4 flex-1">
+            {items.map(item => (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={cx(
+                  'w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl mb-2 transition-all text-left',
+                  activeTab === item.id ? 'bg-primary/10 text-primary font-bold shadow-sm' : 'text-slate-600 hover:bg-white/70'
+                )}
+              >
+                <span className="text-xl">{item.icon}</span>
+                <span>{item.label}</span>
+                {activeTab === item.id && <span className="ml-auto w-2 h-2 rounded-full bg-accent"></span>}
+              </button>
+            ))}
+          </nav>
+          <div className="p-4 border-t border-slate-200/70">
+            <button
+              onClick={onOpenAIConsole}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left text-slate-600 hover:bg-white/70 transition-all"
+            >
+              <span className="text-xl">🤖</span>
+              <span className="font-semibold">AI 控制台</span>
+            </button>
+          </div>
+          <div className="p-4">
+            <div className="rounded-3xl bg-gradient-to-br from-primary/10 via-white to-accent/10 p-4 border border-white shadow-sm">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-bold">林</div>
+                <div>
+                  <p className="font-bold text-sm">林同学</p>
+                  <p className="text-xs text-slate-500">计算机学院 · 研二</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div><p className="font-black text-primary">12</p><p className="text-[11px] text-slate-500">任务</p></div>
+                <div><p className="font-black text-accent">8</p><p className="text-[11px] text-slate-500">搭子</p></div>
+                <div><p className="font-black text-emerald-500">95%</p><p className="text-[11px] text-slate-500">完成</p></div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      );
+    }
+
+    function ProductPositionCard() {
+      const points = [
+        ['真实痛点', '校园群聊、海报、DDL 分散在多个入口，学生很容易漏看时间地点和报名要求。'],
+        ['AI 价值', '把非结构化通知转成任务、洞察、日历提醒、可分享卡片。'],
+        ['PCG 联动', 'QQ/QQ频道负责分发与社交，腾讯新闻补充背景，腾讯文档沉淀材料，混元负责理解与生成。'],
+        ['验证指标', '通知遗漏率、日历同步率、卡片转发率、组队成功率。']
+      ];
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-8">
+          {points.map(([title, desc], index) => (
+            <div key={title} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm animate-fadeUp" style={{ animationDelay: `${index * 70}ms` }}>
+              <p className="text-xs font-black text-primary mb-2">{title}</p>
+              <p className="text-sm text-slate-600 leading-relaxed">{desc}</p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function InputArea({ onResult }) {
+      const { showToast } = useContext(AppContext);
+      const [tab, setTab] = useState('text');
+      const [text, setText] = useState('腾讯 PCG 校园招聘宣讲会，本周五 19:00，大学生活动中心 101。现场会介绍内容产品、QQ 频道运营、AIGC 产品实习岗位，欢迎带简历参加。');
+      const [loading, setLoading] = useState(false);
+      const [dragging, setDragging] = useState(false);
+      const [preview, setPreview] = useState('');
+      const fileRef = useRef(null);
+
+      const handleAnalyzeText = async () => {
+        if (!text.trim()) return showToast('请先粘贴通知文本', 'info');
+        setLoading(true);
+        try {
+          const data = await apiPost('/api/analyze', { content: text });
+          onResult(data);
+          showToast(/hunyuan|zhipu|openai|anthropic|custom/.test(data.source || '') ? 'AI 解析完成' : 'Mock 解析完成，可配置密钥切换真实调用', /hunyuan|zhipu|openai|anthropic|custom/.test(data.source || '') ? 'success' : 'info');
+        } catch (error) {
+          showToast(error.message || '解析失败', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleFile = async file => {
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return showToast('请上传图片文件', 'info');
+        setLoading(true);
+        try {
+          const dataUrl = await readFileAsDataURL(file);
+          setPreview(dataUrl);
+          const data = await apiPost('/api/analyze-image', { imageBase64: dataUrl });
+          if (data.ocrText) setText(data.ocrText);
+          onResult(data);
+          showToast(data.ocrText ? 'OCR + AI 解析完成' : '已返回图片演示结果', data.ocrText ? 'success' : 'info');
+        } catch (error) {
+          showToast(error.message || '图片解析失败', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="bg-white rounded-[28px] p-6 md:p-7 shadow-soft border border-white">
+          <div className="flex bg-slate-100 rounded-full p-1 w-full max-w-md mx-auto mb-6">
+            {[
+              ['text', '粘贴群聊/通知'],
+              ['image', '上传海报/截图']
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={cx('flex-1 py-2.5 rounded-full font-semibold text-sm transition-all', tab === id ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-800')}
+              >{label}</button>
+            ))}
+          </div>
+
+          {tab === 'text' ? (
+            <textarea
+              value={text}
+              onChange={e => setText(e.target.value)}
+              placeholder="粘贴 QQ 群通知、校园公告、DDL、社团招新信息..."
+              className="w-full h-44 rounded-2xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-primary/25 outline-none p-4 text-slate-700 resize-none leading-relaxed"
+            />
+          ) : (
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files?.[0]); }}
+              className={cx('relative h-52 rounded-2xl border-2 border-dashed overflow-hidden cursor-pointer flex items-center justify-center transition-all', dragging ? 'border-accent bg-purple-50' : 'border-slate-200 bg-slate-50 hover:border-primary/40')}
+            >
+              {loading && <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-accent/20 to-transparent animate-scan"></div>}
+              {preview ? <img src={preview} className="max-w-full max-h-full object-contain" alt="海报预览" /> : (
+                <div className="text-center text-slate-500">
+                  <div className="text-4xl mb-3">🖼️</div>
+                  <p className="font-semibold">点击或拖拽上传海报 / 截图</p>
+                  <p className="text-xs mt-1">配置智谱 BigModel 后，后端会用多模态 AI 同时识别文字和画面</p>
+                </div>
+              )}
+              <input ref={fileRef} className="hidden" type="file" accept="image/*" onChange={e => handleFile(e.target.files?.[0])} />
+            </div>
+          )}
+
+          <button
+            onClick={tab === 'text' ? handleAnalyzeText : () => fileRef.current?.click()}
+            disabled={loading}
+            className={cx('mt-6 w-full rounded-2xl py-4 font-black text-white flex items-center justify-center gap-2 transition-all', loading ? 'bg-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-primary to-accent hover:shadow-lg hover:shadow-blue-500/20 hover:scale-[1.01]')}
+          >
+            {loading ? <span className="w-5 h-5 rounded-full border-2 border-white/40 border-t-white animate-spin"></span> : <span>✨</span>}
+            {loading ? '情报官正在解析...' : tab === 'text' ? '呼叫情报官 AI 解析' : '选择图片并解析'}
+          </button>
+        </div>
+      );
+    }
+
+    function TaskCard({ result, onSync }) {
+      const { showToast } = useContext(AppContext);
+      const task = result.task || {};
+      const priorityStyle = task.priority === 'high' ? 'bg-rose-50 text-rose-700 border-rose-200' : task.priority === 'low' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200';
+      
+      const handleSync = () => {
+        downloadIcs(task, result.news?.summary);
+        onSync(task, result.news);
+        showToast('已同步到情报日历', 'success');
+      };
+      
+      return (
+        <div className="bg-white rounded-[28px] shadow-soft border border-white overflow-hidden animate-fadeUp">
+          <div className="h-1.5 bg-gradient-to-r from-primary to-blue-300"></div>
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-xs font-black text-primary mb-1">TASK EXTRACT</p>
+                <h3 className="font-black text-xl">任务提取</h3>
+              </div>
+              <span className={cx('text-xs font-bold px-3 py-1 rounded-full border', priorityStyle)}>{task.priority === 'high' ? '高优先级' : task.priority === 'low' ? '低优先级' : '中优先级'}</span>
+            </div>
+            <div className="space-y-4">
+              <InfoRow label="主题" value={task.topic} icon="🏷️" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <InfoRow label="时间" value={task.time} icon="⏰" compact />
+                <InfoRow label="地点" value={task.location} icon="📍" compact />
+              </div>
+              <InfoRow label="类型" value={task.typeLabel || task.type} icon="🧩" />
+            </div>
+            <div className="mt-5 bg-slate-50 rounded-2xl p-4">
+              <p className="text-xs font-black text-slate-500 mb-3">下一步行动</p>
+              <div className="space-y-2">
+                {(task.actionItems || []).map((item, idx) => (
+                  <div key={idx} className="flex gap-2 text-sm text-slate-700"><span className="text-emerald-500">✓</span><span>{item}</span></div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                onClick={handleSync}
+                className="rounded-2xl py-3 border-2 border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all"
+              >同步日历</button>
+              <button
+                onClick={() => showToast('已生成 QQ 频道情报卡片（演示）', 'success')}
+                className="rounded-2xl py-3 bg-gradient-to-r from-[#12B7F5] to-primary text-white font-bold hover:shadow-lg transition-all"
+              >分发 QQ</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function InfoRow({ label, value, icon, compact }) {
+      return (
+        <div className={cx('rounded-2xl bg-slate-50', compact ? 'p-3' : 'p-4')}>
+          <p className="text-xs text-slate-400 font-bold mb-1 flex items-center gap-1"><span>{icon}</span>{label}</p>
+          <p className="font-bold text-slate-800 leading-snug">{value || '待确认'}</p>
+        </div>
+      );
+    }
+
+    function InsightCard({ result, onOpenAgent }) {
+      const { showToast } = useContext(AppContext);
+      const news = result.news || {};
+      const sourceLabel = result.source?.includes('zhipu') ? '智谱 BigModel 生成' : result.source?.includes('hunyuan') ? '腾讯混元 AI 生成' : '本地 Mock 规则生成';
+      
+      return (
+        <div className="bg-white rounded-[28px] shadow-soft border border-white overflow-hidden animate-fadeUp" style={{ animationDelay: '90ms' }}>
+          <div className="h-1.5 bg-gradient-to-r from-accent to-purple-300"></div>
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-xs font-black text-accent mb-1">SMART INSIGHT</p>
+                <h3 className="font-black text-xl">智能洞察</h3>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-accent border border-purple-100">{sourceLabel}</span>
+            </div>
+            <h4 className="font-black text-lg leading-snug mb-3">{news.title}</h4>
+            <p className="text-slate-600 leading-relaxed bg-slate-50 rounded-2xl p-4 text-sm">{news.summary}</p>
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <MiniList title="准备建议" items={news.preparation} icon="🧭" />
+              <MiniList title="PCG 场景联动" items={news.pcgMapping} icon="🔗" />
+            </div>
+            {result.providerError && (
+              <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
+                大模型调用失败，已自动降级 Mock：{result.providerError}
+              </div>
+            )}
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                onClick={onOpenAgent}
+                className="rounded-2xl py-3 bg-gradient-to-r from-accent to-primary text-white font-bold hover:shadow-lg transition-all"
+              >模拟面试</button>
+              <button
+                onClick={() => showToast('已复制分享卡片文案（演示）', 'success')}
+                className="rounded-2xl py-3 bg-gradient-to-r from-purple-500 to-accent text-white font-bold hover:shadow-lg transition-all"
+              >生成卡片</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function MiniList({ title, items = [], icon }) {
+      return (
+        <div className="rounded-2xl bg-slate-50 p-4">
+          <p className="text-xs font-black text-slate-500 mb-3"><span className="mr-1">{icon}</span>{title}</p>
+          <div className="space-y-2">
+            {(items || []).slice(0, 4).map((item, index) => (
+              <p key={index} className="text-sm text-slate-700 leading-relaxed flex gap-2"><span className="text-primary font-black">{index + 1}</span><span>{item}</span></p>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function ResultPanel({ result, onSync, onOpenAgent }) {
+      if (!result) return null;
+      return (
+        <div className="mt-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <TaskCard result={result} onSync={onSync} />
+          <InsightCard result={result} onOpenAgent={onOpenAgent} />
+        </div>
+      );
+    }
+
+    function IntelligenceCenter() {
+      const { addCalendarTask, setInterviewContext, setAgentOpen } = useContext(AppContext);
+      const [result, setResult] = useState(null);
+      
+      // 只同步任务提取到日历，洞察卡片保留为路演/分享素材。
+      const onSync = (task, news) => {
+        if (task && task.topic) {
+          addCalendarTask({
+            id: Date.now(),
+            title: task.topic,
+            date: task.time,
+            timeText: task.time,
+            location: task.location || '',
+            priority: task.priority || 'medium',
+            type: 'task',
+            synced: true
+          });
+        }
+      };
+      
+      const openAgent = () => {
+        setInterviewContext(result?.news?.summary || result?.task?.topic || '校园情报官产品 Demo');
+        setAgentOpen(true);
+      };
+      
+      return (
+        <div className="animate-fadeUp">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 px-4 py-2 rounded-full shadow-sm mb-4">
+              <span>✨</span><span className="text-sm font-bold text-slate-600">校园碎片信息 · AI 产品化处理</span>
+            </div>
+            <h2 className="text-4xl font-black tracking-tight mb-3"><span className="gradient-text">让校园信息不再杂乱</span></h2>
+            <p className="text-slate-500 max-w-2xl mx-auto">粘贴 QQ 群通知或上传海报，自动提取任务、生成洞察、同步日历，并沉淀成 QQ 频道可分享的情报卡片。</p>
+          </div>
+          <ProductPositionCard />
+          <InputArea onResult={setResult} />
+          <ResultPanel result={result} onSync={onSync} onOpenAgent={openAgent} />
+        </div>
+      );
+    }
+
+    function RealCalendar({ tasks, onRefreshHealth }) {
+      const { showToast } = useContext(AppContext);
+      const [currentDate, setCurrentDate] = useState(new Date());
+      const [events, setEvents] = useState(() => {
+        // 从 localStorage 加载已保存的事件
+        try {
+          const saved = localStorage.getItem('calendar-events');
+          return saved ? JSON.parse(saved) : [];
+        } catch {
+          return [];
+        }
+      });
+      const [selectedDate, setSelectedDate] = useState(null);
+      const [showDayEvents, setShowDayEvents] = useState(false);
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [newEvent, setNewEvent] = useState({ title: '', time: '', location: '', priority: 'medium' });
+
+      const getEventDateTime = (event, fallbackTime = '00:00') => new Date(`${event.date}T${event.time || fallbackTime}:00`);
+
+      // 保存事件到 localStorage
+      const saveEvents = (newEvents) => {
+        setEvents(newEvents);
+        localStorage.setItem('calendar-events', JSON.stringify(newEvents));
+      };
+
+      // 添加事件
+      const addEvent = () => {
+        if (!newEvent.title.trim()) return showToast('请输入事件标题', 'info');
+        const event = {
+          id: Date.now(),
+          title: newEvent.title,
+          date: selectedDate ? formatLocalDate(selectedDate) : formatLocalDate(new Date()),
+          time: newEvent.time,
+          location: newEvent.location,
+          priority: newEvent.priority
+        };
+        saveEvents([...events, event]);
+        setNewEvent({ title: '', time: '', location: '', priority: 'medium' });
+        setShowAddModal(false);
+        showToast('事件已添加', 'success');
+      };
+
+      // 删除事件
+      const deleteEvent = (id) => {
+        saveEvents(events.filter(e => e.id !== id));
+        showToast('事件已删除', 'success');
+      };
+
+      // 获取某日期的事件
+      const getEventsForDate = (date) => {
+        const dateStr = formatLocalDate(date);
+        return events.filter(e => e.date === dateStr);
+      };
+
+      // 计算倒计时
+      const getCountdown = (event) => {
+        const eventDate = getEventDateTime(event, '00:00');
+        const now = new Date();
+        const diff = eventDate - now;
+        if (diff < 0) return { text: '已过期', color: 'text-slate-400' };
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        if (days > 0) return { text: `还剩 ${days} 天 ${hours} 小时`, color: 'text-amber-600' };
+        if (hours > 0) return { text: `还剩 ${hours} 小时`, color: 'text-orange-600' };
+        return { text: '即将开始', color: 'text-rose-600' };
+      };
+
+      // 日历导航
+      const goToPrevMonth = () => {
+        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+      };
+      const goToNextMonth = () => {
+        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+      };
+
+      // 生成日历网格
+      const generateCalendarDays = () => {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        const startWeekday = (firstDay.getDay() + 6) % 7; // 转换为周一开始
+
+        const days = [];
+        // 填充上月空白
+        for (let i = 0; i < startWeekday; i++) {
+          days.push(null);
+        }
+        // 填充当月日期
+        for (let d = 1; d <= daysInMonth; d++) {
+          days.push(new Date(year, month, d));
+        }
+        return days;
+      };
+
+      const calendarDays = generateCalendarDays();
+      const weekDays = ['一', '二', '三', '四', '五', '六', '日'];
+      const today = new Date();
+
+      return (
+        <section className="animate-fadeUp">
+          <PageTitle icon="📅" title="情报日历" subtitle="管理你的校园日程，支持倒计时提醒" />
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* 日历视图 */}
+            <div className="lg:col-span-2 bg-white rounded-[28px] p-6 shadow-soft border border-white">
+              {/* 月份导航 */}
+              <div className="flex items-center justify-between mb-6">
+                <button onClick={goToPrevMonth} className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center">←</button>
+                <h3 className="font-black text-xl">
+                  {currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月
+                </h3>
+                <button onClick={goToNextMonth} className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center">→</button>
+              </div>
+
+              {/* 星期标题 */}
+              <div className="grid grid-cols-7 gap-2 mb-2">
+                {weekDays.map(day => (
+                  <div key={day} className="text-center text-xs font-bold text-slate-400 py-2">{day}</div>
+                ))}
+              </div>
+
+              {/* 日历网格 */}
+              <div className="grid grid-cols-7 gap-2">
+                {calendarDays.map((date, index) => {
+                  if (!date) return <div key={index}></div>;
+                  const dateKey = formatLocalDate(date);
+                  const isToday = dateKey === formatLocalDate(today);
+                  const isSelected = selectedDate && dateKey === formatLocalDate(selectedDate);
+                  const dayEvents = getEventsForDate(date);
+                  
+                  return (
+                    <div
+                      key={dateKey}
+                      onClick={() => { setSelectedDate(date); setShowDayEvents(true); }}
+                      className={cx(
+                        'min-h-[80px] p-2 rounded-2xl cursor-pointer transition-all hover:bg-slate-50',
+                        isToday && 'bg-primary/10',
+                        isSelected && 'ring-2 ring-primary'
+                      )}
+                    >
+                      <div className={cx('text-sm font-bold mb-1', isToday ? 'text-primary' : 'text-slate-700')}>
+                        {date.getDate()}
+                      </div>
+                      {dayEvents.slice(0, 2).map((event, idx) => (
+                        <div key={idx} className="text-xs bg-accent/10 text-accent px-1 py-0.5 rounded mb-0.5 truncate">
+                          {event.title}
+                        </div>
+                      ))}
+                      {dayEvents.length > 2 && <div className="text-xs text-slate-400">+{dayEvents.length - 2}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 事件列表和倒计时 */}
+            <div className="space-y-6">
+              {/* 即将到来的事件 - 只显示最近的3个 */}
+              <div className="bg-white rounded-[28px] p-6 shadow-soft border border-white">
+                <h4 className="font-black text-lg mb-4">⏰ 倒计时</h4>
+                <div className="space-y-3">
+                  {events
+                    .filter(e => getEventDateTime(e, '23:59') > new Date())
+                    .sort((a, b) => getEventDateTime(a, '00:00') - getEventDateTime(b, '00:00'))
+                    .slice(0, 3)
+                    .map(event => {
+                      const countdown = getCountdown(event);
+                      return (
+                        <div key={event.id} className="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer" onClick={() => { setSelectedDate(new Date(`${event.date}T00:00:00`)); setShowDayEvents(true); }}>
+                          <p className="font-bold text-sm truncate">{event.title}</p>
+                          <p className={`text-xs font-bold ${countdown.color}`}>{countdown.text}</p>
+                          <p className="text-xs text-slate-500 mt-1">{event.date} {event.time}</p>
+                        </div>
+                      );
+                    })}
+                  {events.filter(e => getEventDateTime(e, '23:59') > new Date()).length === 0 && (
+                    <p className="text-sm text-slate-400">暂无即将到来的事件</p>
+                  )}
+                </div>
+              </div>
+
+              {/* 所有事件列表 */}
+              <div className="bg-white rounded-[28px] p-6 shadow-soft border border-white">
+                <h4 className="font-black text-lg mb-4">📋 所有日程</h4>
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {events
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map(event => (
+                      <div key={event.id} className="p-3 rounded-2xl bg-slate-50 flex items-center gap-3">
+                        <div className={cx('w-3 h-10 rounded-full', event.priority === 'high' ? 'bg-rose-500' : event.priority === 'low' ? 'bg-emerald-500' : 'bg-amber-500')}></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-sm truncate">{event.title}</p>
+                          <p className="text-xs text-slate-500">{event.date} {event.time}</p>
+                        </div>
+                        <button onClick={() => deleteEvent(event.id)} className="text-rose-500 hover:bg-rose-50 w-8 h-8 rounded-full flex items-center justify-center">✕</button>
+                      </div>
+                    ))}
+                  {events.length === 0 && (
+                    <p className="text-sm text-slate-400">点击日历添加事件</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 查看当天日程弹窗 */}
+          {showDayEvents && selectedDate && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowDayEvents(false)}></div>
+              <div className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-lg p-6 animate-fadeUp">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-black text-xl">
+                    {selectedDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
+                  </h3>
+                  <button onClick={() => setShowDayEvents(false)} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center">✕</button>
+                </div>
+                
+                {/* 当天事件列表 */}
+                <div className="space-y-3 max-h-[400px] overflow-y-auto mb-4">
+                  {getEventsForDate(selectedDate).length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-8">当天暂无日程</p>
+                  ) : (
+                    getEventsForDate(selectedDate).map(event => (
+                      <div key={event.id} className="p-4 rounded-2xl bg-slate-50 hover:bg-slate-100 transition-all">
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="font-bold text-sm flex-1">{event.title}</p>
+                          <button onClick={() => { deleteEvent(event.id); }} className="text-rose-500 hover:bg-rose-50 w-6 h-6 rounded-full flex items-center justify-center text-xs ml-2">✕</button>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500">
+                          {event.time && <span>🕐 {event.time}</span>}
+                          {event.location && <span>📍 {event.location}</span>}
+                          <span className={cx('px-2 py-0.5 rounded-full text-xs', 
+                            event.priority === 'high' ? 'bg-rose-100 text-rose-700' :
+                            event.priority === 'low' ? 'bg-emerald-100 text-emerald-700' :
+                            'bg-amber-100 text-amber-700'
+                          )}>
+                            {event.priority === 'high' ? '高' : event.priority === 'low' ? '低' : '中'}
+                          </span>
+                          {event.type === 'insight' && <span className="text-purple-600">💡 洞察</span>}
+                        </div>
+                        {event.summary && (
+                          <p className="text-xs text-slate-600 mt-2 line-clamp-2">{event.summary}</p>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+                
+                {/* 添加按钮 */}
+                <button
+                  onClick={() => { setShowDayEvents(false); setShowAddModal(true); }}
+                  className="w-full py-3 rounded-2xl border-2 border-dashed border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all"
+                >
+                  + 手动添加日程
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 添加事件弹窗 */}
+          {showAddModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowAddModal(false)}></div>
+              <div className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-md p-6 animate-fadeUp">
+                <h3 className="font-black text-xl mb-4">添加日程</h3>
+                <p className="text-sm text-slate-500 mb-4">
+                  {selectedDate?.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">标题</label>
+                    <input
+                      value={newEvent.title}
+                      onChange={e => setNewEvent({ ...newEvent, title: e.target.value })}
+                      placeholder="输入事件标题"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">时间</label>
+                    <input
+                      type="time"
+                      value={newEvent.time}
+                      onChange={e => setNewEvent({ ...newEvent, time: e.target.value })}
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">地点</label>
+                    <input
+                      value={newEvent.location}
+                      onChange={e => setNewEvent({ ...newEvent, location: e.target.value })}
+                      placeholder="输入地点（可选）"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">优先级</label>
+                    <div className="flex gap-3">
+                      {['low', 'medium', 'high'].map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setNewEvent({ ...newEvent, priority: p })}
+                          className={cx(
+                            'flex-1 py-2 rounded-2xl font-bold text-sm',
+                            newEvent.priority === p ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600'
+                          )}
+                        >
+                          {p === 'low' ? '低' : p === 'medium' ? '中' : '高'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button onClick={() => setShowAddModal(false)} className="flex-1 py-3 rounded-2xl border-2 border-slate-200 font-bold hover:bg-slate-50">取消</button>
+                  <button onClick={() => { addEvent(); setShowDayEvents(true); }} className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-primary to-accent text-white font-bold">添加</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      );
+    }
+
+    function NotesModule() {
+      const { showToast } = useContext(AppContext);
+      const defaultNotes = [
+        { tag: '产品定位', title: '校园信息过载的核心矛盾', content: '不是学生不会管理时间，而是通知源太分散：QQ群、公众号、海报、班委转发都缺少统一结构。' },
+        { tag: 'AI 能力', title: '从 NLP 提取到行动 Agent', content: '第一层提取时间地点，第二层生成行动建议，第三层联动日历、QQ 频道和文档沉淀。' },
+        { tag: '路演表达', title: '评审最关心的验证闭环', content: '用遗漏率、同步率、转发率、组队率说明产品价值，不只展示“能生成文字”。' },
+        { tag: '商业延展', title: '校园场景向 PCG 内容生态扩展', content: '讲座/宣讲会可沉淀成知识卡片，赛事和社团活动可形成频道内容供给。' }
+      ];
+      const [notes, setNotes] = useState(() => {
+        try {
+          const saved = localStorage.getItem('campus-notes');
+          return saved ? JSON.parse(saved) : defaultNotes;
+        } catch {
+          return defaultNotes;
+        }
+      });
+      const [memo, setMemo] = useState({ tag: '备忘录', title: '', content: '' });
+
+      const saveNotes = (nextNotes) => {
+        setNotes(nextNotes);
+        localStorage.setItem('campus-notes', JSON.stringify(nextNotes));
+      };
+
+      const addMemo = () => {
+        if (!memo.title.trim() && !memo.content.trim()) return showToast('先写一点备忘内容', 'info');
+        const nextNote = {
+          id: Date.now(),
+          tag: memo.tag.trim() || '备忘录',
+          title: memo.title.trim() || '未命名备忘',
+          content: memo.content.trim()
+        };
+        saveNotes([nextNote, ...notes]);
+        setMemo({ tag: '备忘录', title: '', content: '' });
+        showToast('备忘录已保存', 'success');
+      };
+
+      const deleteNote = (note) => {
+        saveNotes(notes.filter(item => (item.id || item.title) !== (note.id || note.title)));
+        showToast('备忘录已删除', 'success');
+      };
+
+      return (
+        <section className="animate-fadeUp">
+          <PageTitle icon="📝" title="随身笔记" subtitle="把 AI 生成的洞察沉淀成可复用材料" />
+          <div className="bg-white rounded-[28px] p-6 shadow-soft border border-white mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-4 mb-4">
+              <input
+                value={memo.tag}
+                onChange={e => setMemo({ ...memo, tag: e.target.value })}
+                placeholder="标签"
+                className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+              />
+              <input
+                value={memo.title}
+                onChange={e => setMemo({ ...memo, title: e.target.value })}
+                placeholder="备忘标题，例如：路演要补痛点验证数据"
+                className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+              />
+            </div>
+            <textarea
+              value={memo.content}
+              onChange={e => setMemo({ ...memo, content: e.target.value })}
+              placeholder="记录访谈结论、评委可能追问、素材链接、分工提醒..."
+              className="w-full h-28 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40 resize-none leading-relaxed"
+            />
+            <button onClick={addMemo} className="mt-4 w-full rounded-2xl py-3 bg-gradient-to-r from-primary to-accent text-white font-black hover:shadow-lg transition-all">添加备忘录</button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {notes.map(note => (
+              <div key={note.id || note.title} className="bg-white rounded-[28px] p-6 shadow-soft border border-white hover:-translate-y-1 transition-all">
+                <span className="inline-flex px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-black mb-4">{note.tag}</span>
+                <h3 className="font-black text-lg mb-2">{note.title}</h3>
+                <p className="text-slate-600 leading-relaxed mb-5">{note.content}</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => showToast('已保存至腾讯文档（演示）', 'success')} className="rounded-2xl py-3 border-2 border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all">转腾讯文档</button>
+                  <button onClick={() => deleteNote(note)} className="rounded-2xl py-3 border-2 border-rose-200 text-rose-500 font-bold hover:bg-rose-500 hover:text-white transition-all">删除</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    function BuddyRadarModule() {
+      const { showToast } = useContext(AppContext);
+      const buddies = [
+        { name: '张同学', dept: '计算机学院', match: 92, tags: ['AI 产品', '前端', 'QQ 频道'], common: '都关注 PCG 宣讲会' },
+        { name: '李同学', dept: '新闻传播学院', match: 87, tags: ['内容运营', '短视频', '用户访谈'], common: '都在准备创意大赛' },
+        { name: '王同学', dept: '人工智能学院', match: 81, tags: ['NLP', 'Agent', '论文'], common: '都报名 AI 学术讲座' }
+      ];
+      return (
+        <section className="animate-fadeUp">
+          <PageTitle icon="📡" title="搭子雷达" subtitle="用共同日程和兴趣标签匹配学习 / 比赛 / 求职搭子" />
+          <div className="rounded-[28px] bg-gradient-to-r from-primary to-accent p-6 text-white shadow-soft mb-6">
+            <p className="font-black text-lg mb-4">当前热门日程</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {['腾讯 PCG 宣讲会', '校园 AI 产品创意大赛', '大模型前沿讲座'].map((item, index) => (
+                <div key={item} className="bg-white/15 rounded-2xl p-4 border border-white/20">
+                  <p className="font-black">{item}</p>
+                  <p className="text-sm text-white/75 mt-1">{[48, 36, 29][index]} 人感兴趣</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {buddies.map(buddy => (
+              <div key={buddy.name} className="bg-white rounded-[28px] p-6 shadow-soft border border-white">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-black text-lg">{buddy.name[0]}</div>
+                  <div>
+                    <p className="font-black">{buddy.name}</p>
+                    <p className="text-sm text-slate-500">{buddy.dept}</p>
+                  </div>
+                </div>
+                <div className="mb-4">
+                  <div className="flex justify-between text-sm mb-1"><span className="text-slate-500">匹配度</span><span className="font-black text-accent">{buddy.match}%</span></div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-primary to-accent" style={{ width: `${buddy.match}%` }}></div></div>
+                </div>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {buddy.tags.map(tag => <span key={tag} className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">{tag}</span>)}
+                </div>
+                <p className="text-sm text-slate-500 mb-5">⭐ {buddy.common}</p>
+                <button onClick={() => showToast(`已通过 QQ 频道向 ${buddy.name} 打招呼（演示）`, 'success')} className="w-full rounded-2xl py-3 bg-gradient-to-r from-[#12B7F5] to-primary text-white font-bold">QQ 频道打招呼</button>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    function PageTitle({ icon, title, subtitle }) {
+      return (
+        <div className="mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-2xl">{icon}</div>
+            <div>
+              <h2 className="font-black text-3xl">{title}</h2>
+              <p className="text-slate-500 mt-1">{subtitle}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function AIConsole({ open, onClose, onSaveSuccess }) {
+      const { showToast } = useContext(AppContext);
+      const [config, setConfig] = useState({
+        provider: 'tencent',
+        openaiApiKey: '',
+        openaiBaseURL: 'https://api.openai.com/v1',
+        openaiModel: 'gpt-3.5-turbo',
+        anthropicApiKey: '',
+        anthropicBaseURL: 'https://api.anthropic.com',
+        anthropicModel: 'claude-3-haiku-20240307',
+        customBaseURL: '',
+        customApiKey: '',
+        customModel: '',
+        zhipuApiKey: '',
+        zhipuBaseURL: 'https://open.bigmodel.cn/api/paas/v4',
+        zhipuModel: 'glm-4.7',
+        zhipuVisionModel: 'glm-4.5v',
+        tencentSecretId: '',
+        tencentSecretKey: '',
+        tencentModel: 'hunyuan-turbos-latest'
+      });
+      const [loading, setLoading] = useState(false);
+      const [testing, setTesting] = useState(false);
+
+      useEffect(() => {
+        if (!open) return;
+        try {
+          const saved = JSON.parse(localStorage.getItem('static-demo-ai-config') || '{}');
+          setConfig(prev => ({
+            ...prev,
+            provider: saved.provider || 'zhipu',
+            openaiBaseURL: saved.openaiBaseURL || 'https://api.openai.com/v1',
+            openaiModel: saved.openaiModel || 'gpt-3.5-turbo',
+            anthropicBaseURL: saved.anthropicBaseURL || 'https://api.anthropic.com',
+            anthropicModel: saved.anthropicModel || 'claude-3-haiku-20240307',
+            customBaseURL: saved.customBaseURL || '',
+            customModel: saved.customModel || '',
+            zhipuBaseURL: saved.zhipuBaseURL || 'https://open.bigmodel.cn/api/paas/v4',
+            zhipuModel: saved.zhipuModel || 'glm-4.7',
+            zhipuVisionModel: saved.zhipuVisionModel || 'glm-4.5v',
+            zhipuConfigured: true,
+            tencentModel: saved.tencentModel || 'hunyuan-turbos-latest'
+          }));
+        } catch (error) {
+          showToast('加载本地演示配置失败: ' + error.message, 'error');
+        }
+      }, [open, showToast]);
+
+      const handleSave = async () => {
+        setLoading(true);
+        try {
+          const payload = { ...config };
+          delete payload.openaiConfigured;
+          delete payload.anthropicConfigured;
+          delete payload.customConfigured;
+          delete payload.zhipuConfigured;
+          delete payload.tencentConfigured;
+          localStorage.setItem('static-demo-ai-config', JSON.stringify(payload));
+          showToast('静态演示配置已保存', 'success');
+          if (onSaveSuccess) onSaveSuccess();
+          setTimeout(() => onClose(), 1000);
+        } catch (error) {
+          showToast(error.message || '保存失败', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleTest = async () => {
+        setTesting(true);
+        try {
+          await demoWait(500);
+          showToast('静态演示模式：连接测试成功', 'success');
+        } catch (error) {
+          showToast(error.message || '连接测试失败', 'error');
+        } finally {
+          setTesting(false);
+        }
+      };
+
+      const updateConfig = (field, value) => {
+        setConfig(prev => ({ ...prev, [field]: value }));
+      };
+
+      if (!open) return null;
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
+          <div className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-fadeUp">
+            <div className="h-1.5 bg-gradient-to-r from-primary to-accent"></div>
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center text-2xl">🤖</div>
+                  <div>
+                    <h3 className="font-black text-xl">AI 控制台</h3>
+                    <p className="text-xs text-slate-500">配置你自己的大模型 API</p>
+                  </div>
+                </div>
+                <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-slate-100">✕</button>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-bold text-slate-700 mb-3">选择 AI 提供商</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: 'openai', label: 'OpenAI', desc: 'GPT-3.5/GPT-4' },
+                    { id: 'anthropic', label: 'Anthropic', desc: 'Claude 3' },
+                    { id: 'zhipu', label: '智谱 BigModel', desc: 'GLM 文本 + 视觉识别' },
+                    { id: 'openai-compatible', label: '自定义兼容 API', desc: 'OpenAI 格式兼容' },
+                    { id: 'tencent', label: '腾讯混元', desc: '腾讯云混元大模型' }
+                  ].map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => updateConfig('provider', item.id)}
+                      className={cx(
+                        'p-4 rounded-2xl border-2 text-left transition-all',
+                        config.provider === item.id ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-primary/30'
+                      )}
+                    >
+                      <p className="font-bold text-sm">{item.label}</p>
+                      <p className="text-xs text-slate-500 mt-1">{item.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {config.provider === 'openai' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={config.openaiApiKey}
+                      onChange={e => updateConfig('openaiApiKey', e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Base URL</label>
+                    <input
+                      value={config.openaiBaseURL}
+                      onChange={e => updateConfig('openaiBaseURL', e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Model</label>
+                    <input
+                      value={config.openaiModel}
+                      onChange={e => updateConfig('openaiModel', e.target.value)}
+                      placeholder="gpt-3.5-turbo"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {config.provider === 'anthropic' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={config.anthropicApiKey}
+                      onChange={e => updateConfig('anthropicApiKey', e.target.value)}
+                      placeholder="sk-ant-..."
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Base URL</label>
+                    <input
+                      value={config.anthropicBaseURL}
+                      onChange={e => updateConfig('anthropicBaseURL', e.target.value)}
+                      placeholder="https://api.anthropic.com"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Model</label>
+                    <input
+                      value={config.anthropicModel}
+                      onChange={e => updateConfig('anthropicModel', e.target.value)}
+                      placeholder="claude-3-haiku-20240307"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {config.provider === 'openai-compatible' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Base URL</label>
+                    <input
+                      value={config.customBaseURL}
+                      onChange={e => updateConfig('customBaseURL', e.target.value)}
+                      placeholder="https://api.deepseek.com（自动补全 /v1）"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                    <p className="mt-1.5 text-xs text-slate-500">💡 提示：输入域名即可（如 https://api.deepseek.com），系统会自动添加 /v1 路径</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={config.customApiKey}
+                      onChange={e => updateConfig('customApiKey', e.target.value)}
+                      placeholder="sk-... 或类似格式"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Model</label>
+                    <input
+                      value={config.customModel}
+                      onChange={e => updateConfig('customModel', e.target.value)}
+                      placeholder="deepseek-chat / deepseek-coder"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                    <p className="mt-1.5 text-xs text-slate-500">Deepseek 常用模型：deepseek-chat、deepseek-coder</p>
+                  </div>
+                </div>
+              )}
+
+              {config.provider === 'zhipu' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={config.zhipuApiKey}
+                      onChange={e => updateConfig('zhipuApiKey', e.target.value)}
+                      placeholder="从 bigmodel.cn 获取的 API Key"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Base URL</label>
+                    <input
+                      value={config.zhipuBaseURL}
+                      onChange={e => updateConfig('zhipuBaseURL', e.target.value)}
+                      placeholder="https://open.bigmodel.cn/api/paas/v4"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">文本模型</label>
+                      <input
+                        value={config.zhipuModel}
+                        onChange={e => updateConfig('zhipuModel', e.target.value)}
+                        placeholder="glm-4.7"
+                        className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">视觉模型</label>
+                      <input
+                        value={config.zhipuVisionModel}
+                        onChange={e => updateConfig('zhipuVisionModel', e.target.value)}
+                        placeholder="glm-4.5v"
+                        className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">上传海报/截图时会优先调用视觉模型，识别可见文字、版式线索和活动信息。</p>
+                </div>
+              )}
+
+              {config.provider === 'tencent' && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Secret ID</label>
+                    <input
+                      value={config.tencentSecretId}
+                      onChange={e => updateConfig('tencentSecretId', e.target.value)}
+                      placeholder="腾讯云 Secret ID"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Secret Key</label>
+                    <input
+                      type="password"
+                      value={config.tencentSecretKey}
+                      onChange={e => updateConfig('tencentSecretKey', e.target.value)}
+                      placeholder="腾讯云 Secret Key"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Model</label>
+                    <input
+                      value={config.tencentModel}
+                      onChange={e => updateConfig('tencentModel', e.target.value)}
+                      placeholder="hunyuan-turbos-latest"
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-primary/40"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleTest}
+                  disabled={testing}
+                  className="flex-1 rounded-2xl py-3 border-2 border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all disabled:opacity-50"
+                >
+                  {testing ? '测试中...' : '测试连接'}
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={loading}
+                  className="flex-1 rounded-2xl py-3 bg-gradient-to-r from-primary to-accent text-white font-bold hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  {loading ? '保存中...' : '保存配置'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function FabChat() {
+      const { showToast } = useContext(AppContext);
+      const [open, setOpen] = useState(false);
+      const [messages, setMessages] = useState([{ role: 'ai', text: '你好，我是校园情报官 AI 助手。你可以问我如何整理通知、准备比赛或优化路演。' }]);
+      const [input, setInput] = useState('');
+      const [loading, setLoading] = useState(false);
+      const quick = ['帮我优化比赛亮点', '怎么验证这个痛点？', '给我一个面试问题'];
+
+      const send = async (preset) => {
+        const content = (preset || input).trim();
+        if (!content || loading) return;
+        const nextMessages = [...messages, { role: 'user', text: content }];
+        setMessages(nextMessages);
+        setInput('');
+        setLoading(true);
+        try {
+          const data = await apiPost('/api/chat', { question: content, history: nextMessages });
+          setMessages(prev => [...prev, { role: 'ai', text: data.reply }]);
+        } catch (error) {
+          showToast(error.message || 'AI 助手请求失败', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="fixed right-6 bottom-6 z-40 flex flex-col items-end gap-3">
+          {open && (
+            <div className="glass-dark w-[360px] max-w-[calc(100vw-32px)] rounded-[28px] shadow-2xl border border-white/10 overflow-hidden animate-fadeUp">
+              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-white font-black"><span>✨</span>AI 助手</div>
+                <button className="text-white/70 hover:text-white" onClick={() => setOpen(false)}>✕</button>
+              </div>
+              <div className="h-80 overflow-y-auto p-4 space-y-3">
+                {messages.map((msg, index) => (
+                  <div key={index} className={cx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                    <div className={cx('max-w-[82%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed', msg.role === 'user' ? 'bg-accent text-white rounded-br-md' : 'bg-white/10 text-white rounded-bl-md')}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {loading && <div className="text-white/70 text-sm">AI 正在思考...</div>}
+              </div>
+              <div className="p-4 border-t border-white/10">
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {quick.map(item => <button key={item} onClick={() => send(item)} className="px-3 py-1.5 rounded-full bg-white/10 text-white/80 text-xs hover:bg-white/20">{item}</button>)}
+                </div>
+                <div className="flex gap-2">
+                  <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="输入问题..." className="flex-1 rounded-2xl bg-white/10 border border-white/10 px-4 py-3 text-white placeholder:text-white/40 outline-none" />
+                  <button onClick={() => send()} disabled={loading} className="rounded-2xl bg-accent text-white px-4 font-bold">发送</button>
+                </div>
+              </div>
+            </div>
+          )}
+          <button onClick={() => setOpen(!open)} className="w-15 h-15 w-[60px] h-[60px] rounded-full bg-gradient-to-br from-accent to-primary text-white shadow-xl shadow-purple-500/30 flex items-center justify-center text-2xl hover:scale-110 transition-all">{open ? '×' : '✨'}</button>
+        </div>
+      );
+    }
+
+    function InterviewModal({ open, onClose, context }) {
+      const { showToast } = useContext(AppContext);
+      const [messages, setMessages] = useState([]);
+      const [input, setInput] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      useEffect(() => {
+        if (!open) return;
+        setMessages([]);
+        setInput('');
+        setLoading(true);
+        apiPost('/api/interview', { content: context })
+          .then(data => setMessages([{ role: 'ai', text: data.reply }]))
+          .catch(error => showToast(error.message || '面试问题生成失败', 'error'))
+          .finally(() => setLoading(false));
+      }, [open, context, showToast]);
+
+      const send = async () => {
+        const answer = input.trim();
+        if (!answer || loading) return;
+        const next = [...messages, { role: 'user', text: answer }];
+        setMessages(next);
+        setInput('');
+        setLoading(true);
+        try {
+          const data = await apiPost('/api/interview', { content: context, answer, history: next });
+          setMessages(prev => [...prev, { role: 'ai', text: data.reply }]);
+        } catch (error) {
+          showToast(error.message || '面试 Agent 请求失败', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      if (!open) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
+          <div className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-2xl overflow-hidden animate-fadeUp">
+            <div className="h-1.5 bg-gradient-to-r from-accent to-primary"></div>
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-accent to-primary text-white flex items-center justify-center text-2xl">🤖</div>
+                  <div>
+                    <h3 className="font-black text-xl">模拟面试 Agent</h3>
+                    <p className="text-xs text-slate-500">围绕产品、AI 能力与 PCG 生态追问</p>
+                  </div>
+                </div>
+                <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-slate-100">✕</button>
+              </div>
+              <div className="h-[360px] overflow-y-auto rounded-3xl bg-slate-50 p-4 space-y-3">
+                {messages.map((msg, index) => (
+                  <div key={index} className={cx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                    <div className={cx('max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed', msg.role === 'user' ? 'bg-accent text-white rounded-br-md' : 'bg-white border border-slate-200 rounded-bl-md text-slate-700')}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {loading && <div className="text-sm text-slate-500">Agent 正在生成...</div>}
+              </div>
+              <div className="mt-4 flex gap-3">
+                <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="输入你的回答..." className="flex-1 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 outline-none focus:border-accent/40" />
+                <button onClick={send} disabled={loading} className="rounded-2xl bg-gradient-to-r from-accent to-primary text-white px-6 font-black">发送</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+      componentDidCatch(error, info) {
+        console.error(error, info);
+      }
+      render() {
+        if (!this.state.hasError) return this.props.children;
+        return (
+          <div className="min-h-screen flex items-center justify-center p-8">
+            <div className="bg-white rounded-[28px] shadow-soft p-8 max-w-lg text-center">
+              <div className="text-5xl mb-4">⚠️</div>
+              <h2 className="font-black text-2xl mb-2">前端渲染出现异常</h2>
+              <p className="text-slate-500 mb-5">请打开浏览器控制台查看具体报错，或刷新页面重试。</p>
+              <pre className="text-left text-xs bg-slate-50 rounded-2xl p-3 overflow-auto mb-5">{String(this.state.error?.message || this.state.error || '')}</pre>
+              <button onClick={() => location.reload()} className="rounded-2xl bg-primary text-white px-6 py-3 font-black">刷新页面</button>
+            </div>
+          </div>
+        );
+      }
+    }
+
+    function App() {
+      const [activeTab, setActiveTab] = useState(0);
+      const [health, setHealth] = useState(null);
+      const [agentOpen, setAgentOpen] = useState(false);
+      const [aiConsoleOpen, setAIConsoleOpen] = useState(false);
+      const [interviewContext, setInterviewContext] = useState('校园情报官 Insight Campus：用 AI 解析校园群聊通知、海报和 DDL，并联动 QQ 频道、腾讯新闻、腾讯文档和日历。');
+      const [toasts, setToasts] = useState([]);
+      const [calendarTasks, setCalendarTasks] = useState([
+        { id: 1, text: '高数作业提交', date: '4月28日 23:59', location: '课程平台', priority: 'high', synced: false },
+        { id: 2, text: '社团例会', date: '周三 19:00', location: '学生活动中心 302', priority: 'medium', synced: false },
+        { id: 3, text: 'AI 产品创意大赛路演彩排', date: '4月30日 20:00', location: '线上会议', priority: 'high', synced: false }
+      ]);
+
+      const showToast = useCallback((message, type = 'success') => {
+        const id = Date.now() + Math.random();
+        setToasts(prev => [...prev, { id, message, type }]);
+      }, []);
+
+      const removeToast = useCallback(id => setToasts(prev => prev.filter(item => item.id !== id)), []);
+      const addCalendarTask = useCallback(task => {
+        setCalendarTasks(prev => [task, ...prev]);
+        // 同时保存到日历的 localStorage
+        try {
+          const savedEvents = localStorage.getItem('calendar-events');
+          const events = savedEvents ? JSON.parse(savedEvents) : [];
+          const parsed = parseCalendarDateTime(task.timeText || task.date || task.time || task.text || task.title, new Date());
+          
+          events.push({
+            id: task.id,
+            title: task.title || task.text || '未命名事件',
+            date: parsed.date,
+            time: parsed.time,
+            location: task.location || '',
+            priority: task.priority || 'medium',
+            type: task.type || 'task',
+            summary: task.summary || ''
+          });
+          localStorage.setItem('calendar-events', JSON.stringify(events));
+        } catch (error) {
+          console.error('保存日历事件失败:', error);
+        }
+      }, []);
+
+      // 刷新健康状态
+      const refreshHealth = useCallback(() => {
+        apiHealth()
+          .then(setHealth)
+          .catch(error => {
+            setHealth({ apiConfigured: false, model: 'offline', lastProviderError: error.message });
+          });
+      }, []);
+
+      useEffect(() => {
+        refreshHealth();
+      }, [refreshHealth]);
+
+      const contextValue = useMemo(() => ({ showToast, addCalendarTask, setAgentOpen, setInterviewContext, setAIConsoleOpen }), [showToast, addCalendarTask, setAIConsoleOpen]);
+
+      return (
+        <AppContext.Provider value={contextValue}>
+          <div className="min-h-screen">
+            <div className="fixed inset-0 pointer-events-none overflow-hidden">
+              <div className="absolute -top-28 -right-24 w-96 h-96 rounded-full bg-primary/10 blur-3xl"></div>
+              <div className="absolute bottom-0 left-[220px] w-[520px] h-[520px] rounded-full bg-accent/10 blur-3xl"></div>
+            </div>
+            <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} health={health} onOpenAIConsole={() => setAIConsoleOpen(true)} />
+            <main className="relative ml-[274px] min-h-screen p-8">
+              <div className="max-w-6xl mx-auto">
+                {activeTab === 0 && <IntelligenceCenter />}
+                {activeTab === 1 && <RealCalendar />}
+                {activeTab === 2 && <NotesModule />}
+                {activeTab === 3 && <BuddyRadarModule />}
+              </div>
+            </main>
+            <FabChat />
+            <AIConsole open={aiConsoleOpen} onClose={() => setAIConsoleOpen(false)} onSaveSuccess={refreshHealth} />
+            <InterviewModal open={agentOpen} onClose={() => setAgentOpen(false)} context={interviewContext} />
+            <div className="fixed right-6 top-6 z-[60] space-y-3">
+              {toasts.map(toast => <Toast key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />)}
+            </div>
+          </div>
+        </AppContext.Provider>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    );
+  </script>
+</body>
+</html>
